@@ -235,7 +235,7 @@ export default function AuthPage({ mode }) {
                 <svg className="h-3.5 w-3.5 mr-1" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
                 Microsoft
               </Button>
-              <Button variant="outline" size="sm" onClick={facebookSignIn} disabled data-testid="auth-facebook-btn">Facebook</Button>
+              <Button variant="outline" size="sm" onClick={facebookSignIn} data-testid="auth-facebook-btn">Facebook</Button>
             </div>
           </div>
 

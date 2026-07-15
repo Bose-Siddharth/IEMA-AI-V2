@@ -1,5 +1,6 @@
 """Auth utilities: JWT, password hashing, dependencies."""
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import bcrypt
@@ -33,6 +34,7 @@ def create_access_token(user_id: str, role: str) -> str:
         "sub": user_id,
         "role": role,
         "type": "access",
+        "jti": secrets.token_hex(8),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_MINUTES),
         "iat": datetime.now(timezone.utc),
     }
@@ -43,6 +45,7 @@ def create_refresh_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
         "type": "refresh",
+        "jti": secrets.token_hex(8),
         "exp": datetime.now(timezone.utc) + timedelta(days=REFRESH_DAYS),
         "iat": datetime.now(timezone.utc),
     }
