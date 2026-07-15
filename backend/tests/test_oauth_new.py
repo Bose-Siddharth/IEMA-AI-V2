@@ -94,17 +94,27 @@ class TestEmailPasswordRegression:
         assert body["tokens"]["access_token"]
         assert body["tokens"]["refresh_token"]
 
-    def test_login_success(self, sess):
-        # Workaround: refresh JWT uses second-resolution iat/exp so needs a small delay
-        # after register to avoid duplicate-key on sessions.refresh_token (see report).
-        time.sleep(1.2)
+    def test_login_success_immediate_after_register(self, sess):
+        # jti fix: register + login in same second must both return 200 with distinct tokens
+        # (no time.sleep between them). Verifies /app/backend/auth.py jti claim uniqueness.
+        r_reg = sess.post(f"{API}/auth/register", json={
+            "email": f"test_jti_{int(time.time()*1000)}@example.com",
+            "password": self.password, "name": "JTI Test"
+        }, timeout=20)
+        assert r_reg.status_code == 200, r_reg.text
+        reg_body = r_reg.json()
+        reg_access = reg_body["tokens"]["access_token"]
+        reg_refresh = reg_body["tokens"]["refresh_token"]
+        # Immediate login (no sleep)
         r = sess.post(f"{API}/auth/login", json={
-            "email": self.email, "password": self.password
+            "email": reg_body["user"]["email"], "password": self.password
         }, timeout=20)
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["user"]["email"] == self.email
         assert body["tokens"]["access_token"]
+        # Tokens must be distinct (jti fix)
+        assert body["tokens"]["access_token"] != reg_access, "access_token collision — jti missing?"
+        assert body["tokens"]["refresh_token"] != reg_refresh, "refresh_token collision — jti missing?"
 
     def test_admin_login(self, sess):
         r = sess.post(f"{API}/auth/login", json={

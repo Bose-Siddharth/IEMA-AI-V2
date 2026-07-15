@@ -1,0 +1,35 @@
+{
+  "summary": "Verified MSAL authority fix (/common → /organizations). PRIMARY assertion PASSED: after clicking [data-testid=auth-microsoft-btn], MSAL popup navigates to https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?client_id=5de6c39a-...&scope=openid%20email%20profile%20offline_access&prompt=select_account&... — /common is no longer used. This resolves the reported 'unauthorized_client: The client does not exist or is not enabled for consumers' error for personal Microsoft accounts. All auth regressions pass: 11/11 backend pytest, admin login → /chat, fresh signup → /chat with welcome toast, Google GSI iframe renders, Apple SDK loads, MSAL initializes on mount with zero JS/console errors, interaction_in_progress recovery still clears sessionStorage and opens a fresh /organizations/ popup with no error toast. NOTE: iter4 jti fix is confirmed live — register+login within the same millisecond now returns two 200s with distinct access & refresh tokens. Iter4 Facebook-button finding is RESOLVED: button no longer has disabled attribute (disabled=None) and the info toast 'Facebook Sign-In is not enabled (no client secret provided).' fires correctly on click.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_oauth_new.py",
+    "/app/test_reports/pytest/pytest_iter5_msal_org.xml"
+  ],
+  "action_items": [
+    "USER ACTION (unchanged, external): In the Azure App Registration → Authentication → 'Supported account types', ensure the app is set to 'Accounts in any organizational directory (Multitenant)'. With authority=/organizations, personal Microsoft accounts are intentionally rejected client-side, so users must sign in with a work/school account. If you WANT to allow personal accounts, both (a) change authority to /common in AuthPage.jsx line 147 AND (b) change the Azure App Registration to 'Accounts in any org directory and personal Microsoft accounts'.",
+    "USER ACTION (unchanged from iter_3): Add https://iema-ai-platform.preview.emergentagent.com as an Authorized JavaScript Origin in Google Cloud Console; also add it as a Redirect URI (SPA) in the Azure App Registration and as a Return URL in Apple Services ID."
+  ],
+  "critical_code_review_comments": [
+    "AuthPage.jsx line 147: authority='https://login.microsoftonline.com/organizations' is correct for the current Azure App configuration. The inline comment accurately documents the trade-off (no personal accounts). Good code hygiene.",
+    "AuthPage.jsx MSAL module-level msalInstance is keyed on first clientId — if oauthCfg.microsoft.client_id changes at runtime, stale instance persists. Very low priority — clientId only comes from /api/auth/oauth-config which is a one-shot fetch.",
+    "auth.py create_access_token & create_refresh_token now include jti=secrets.token_hex(8) — iter4 finding fully addressed. Verified by test_login_success_immediate_after_register asserting reg_access != login_access AND reg_refresh != login_refresh with zero sleep between calls."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_oauth_new.py (replaced 1s-sleep workaround with a real jti-uniqueness assertion; added test_login_success_immediate_after_register)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100%"},
+  "test_credentials": "Admin siddharth.bose@iemlabs.com / Admin@12345; dynamic test_msal_org_<ts>@example.com / Test@12345 and test_jti_<ms>@example.com / Test@12345",
+  "seed_data_creation": "One admin login + two new registrations per run (test_msal_org_<ts>@example.com, test_all_oauth_<ts>@example.com, test_jti_<ms>@example.com). Not cleaned up — negligible volume.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "MSAL authority change (/common → /organizations) is live and verified by direct popup URL capture. Popup URL captured: https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?client_id=5de6c39a-bf40-4f42-88d8-f755a7797cc9&scope=openid%20email%20profile%20offline_access&prompt=select_account&response_type=code&code_challenge_method=S256&... — PKCE flow, response_mode=fragment, msal.js.browser 5.17.0. Recovery from stuck 'msal.interaction.status=interaction_in_progress' also opens a fresh /organizations/ popup. jti claim is on both access & refresh tokens. Frontend loads cleanly, no MSAL init errors, no JS pageerrors on /login. Nothing outstanding for this fix.",
+  "rca of the issue": "Original bug: 'unauthorized_client: The client does not exist or is not enabled for consumers' surfaced when Microsoft's /common authority tried to route personal (consumer) Microsoft accounts through an Azure App Registration whose 'Supported account types' does not permit personal accounts. Fix (already applied in AuthPage.jsx L147): change MSAL authority from https://login.microsoftonline.com/common to https://login.microsoftonline.com/organizations. This restricts sign-in to work/school Microsoft Entra accounts only, matching the Azure app's configuration. Verified via headless popup URL capture — the popup opens on /organizations/oauth2/v2.0/authorize, not /common/oauth2/v2.0/authorize. No code changes needed by main agent."
+}
