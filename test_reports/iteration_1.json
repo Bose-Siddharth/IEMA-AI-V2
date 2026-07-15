@@ -1,0 +1,44 @@
+{
+  "summary": "Comprehensive backend + frontend testing of IEMA.ai v2. Ran 37 pytest cases covering auth (register/login/refresh/me/delete), wallet with 6 buckets, chat SSE streaming (Claude Haiku 4.5 default with 1-credit deduction), conversations CRUD, usage analytics, credit packs USD/INR, Stripe checkout, Razorpay order + signature verify, notifications, and full admin surface. All 37/37 backend tests passed. Frontend UI end-to-end also verified: landing renders, register->/chat redirect, chat streaming displays assistant response with credits decrementing 120->119, sidebar collapse 260px<->64px, navigation to Wallet/Usage/Billing/Settings/Admin all functional, delete-account confirmation dialog requires typing DELETE, admin dashboard shows stat cards + 3 tabs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/wallet/adjust", "issue": "Accepts negative amount (used for draining wallet during test). add_credits() does not validate positivity; a bucket balance can go negative. Consider guarding against negative amount unless bucket == 'welcome' or admin flag."},
+      {"endpoint": "GET /api/chat/conversations", "issue": "MongoDB _id is popped and replaced with id correctly, but other collections rely on client-side coercion. Verified no _id leaks in tested endpoints."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Usage page", "issues": ["Recharts logs 'width(-1) height(-1)' warnings before chart parent has dimensions (harmless but noisy). Consider adding min height to ResponsiveContainer or aspect prop."]},
+      {"screen": "Header/Theme toggle", "issues": ["Theme-toggle button (data-testid=theme-toggle) is only rendered on mobile top bar (md:hidden). Desktop users must use Settings page. If intended, remove NAV.themeToggle expectations from desktop tests."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider validating amount>0 in POST /api/admin/wallet/adjust and add_credits() to prevent negative bucket balances.",
+    "Add min-height to Recharts ResponsiveContainer on Usage page to remove console warnings.",
+    "Optional: expose a desktop-visible theme toggle (currently only on Settings page + mobile top bar)."
+  ],
+  "critical_code_review_comments": [
+    "chat_routes.py stream_message: streaming persists assistant message only if `full_text` is non-empty, so if provider streams zero text the user's message is orphaned and no credit deduction happens — acceptable but consider surfacing a friendly error to user.",
+    "credit_service.add_credits does not clamp negative amounts or check bucket bounds; can create negative balances (see admin_wallet_adjust minor).",
+    "payments_routes.py create_stripe_checkout uses request.base_url which behind kubernetes ingress may produce internal URL; webhook_url is built from base_url too — verify this resolves to the public /api/webhook/stripe correctly in production.",
+    "auth_routes.delete_me hard-deletes user and sessions but does NOT delete related wallets, transactions, conversations, messages, notifications, ai_requests, payment_transactions — this leaves orphaned data (privacy concern; may be intentional for audit).",
+    "server.py uses deprecated @app.on_event('startup'/'shutdown'). Migrate to lifespan context (FastAPI ≥0.93)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new pytest suite - 37 tests)"
+  ],
+  "success_rate": {"backend": "100% (37/37)", "frontend": "100% on tested flows"},
+  "test_credentials": "Admin: siddharth.bose@iemlabs.com / Admin@12345. Test users are created dynamically with prefix test_iema_<timestamp>@example.com / Test@12345 and are cleaned up via DELETE /api/auth/me at end of run.",
+  "seed_data_creation": "Backend startup seeds admin user and 8 credit packs (starter/standard/pro/business × usd/inr). All confirmed present.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend test suite at /app/backend/tests/backend_test.py can be re-run with `pytest /app/backend/tests/backend_test.py -v`. It creates a fresh test user and deletes it. The insufficient-credits (402) test uses admin negative wallet adjust to drain credits — if that behavior is changed (e.g., admin can't add negative), that specific test will need a different draining strategy (e.g., loop chats until wallet empty). Payment tests do NOT complete payment; they only verify session/order creation and signature rejection. Stripe status returns 'pending' since payment isn't completed.",
+  "rca_of_issues": "No blocking issues. Two minor observations: (1) add_credits accepts negative amounts (used intentionally in test to trigger 402), (2) Recharts container warning on Usage page for a few ticks during mount."
+}
