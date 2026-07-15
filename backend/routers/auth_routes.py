@@ -30,15 +30,18 @@ MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
 APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
 APP_URL = os.environ.get("APP_URL", "")
 
-_ms_jwks = None
+_ms_jwks_by_issuer: dict = {}
 _apple_jwks = None
 
 
-def _get_ms_jwks():
-    global _ms_jwks
-    if _ms_jwks is None:
-        _ms_jwks = pyjwt.PyJWKClient("https://login.microsoftonline.com/common/discovery/v2.0/keys")
-    return _ms_jwks
+def _get_ms_jwks_for_issuer(issuer: str):
+    """Get JWKS client for a specific Microsoft issuer (org tenant or MSA)."""
+    if issuer not in _ms_jwks_by_issuer:
+        # Convert issuer to JWKS URL: https://login.microsoftonline.com/{tenant}/v2.0 → /{tenant}/discovery/v2.0/keys
+        base = issuer.rstrip("/").removesuffix("/v2.0")
+        jwks_url = f"{base}/discovery/v2.0/keys"
+        _ms_jwks_by_issuer[issuer] = pyjwt.PyJWKClient(jwks_url)
+    return _ms_jwks_by_issuer[issuer]
 
 
 def _get_apple_jwks():
@@ -440,16 +443,23 @@ async def microsoft_id_token_verify(req: IdTokenRequest, request: Request):
     if not MICROSOFT_CLIENT_ID:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Microsoft OAuth not configured")
     try:
-        jwks = _get_ms_jwks()
+        # Extract issuer from the unverified token so we hit the correct JWKS
+        # (personal MSA tokens are issued from tenant 9188040d-... not /common)
+        unverified = pyjwt.decode(req.id_token, options={"verify_signature": False})
+        issuer = unverified.get("iss") or ""
+        if not issuer.startswith("https://login.microsoftonline.com/") and not issuer.startswith("https://sts.windows.net/"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unexpected token issuer")
+        jwks = _get_ms_jwks_for_issuer(issuer)
         signing_key = jwks.get_signing_key_from_jwt(req.id_token)
-        # Microsoft uses per-tenant issuers, so we don't force iss check but verify signature + aud
         payload = pyjwt.decode(
             req.id_token,
             signing_key.key,
             algorithms=["RS256"],
             audience=MICROSOFT_CLIENT_ID,
-            options={"verify_iss": False},  # Multi-tenant apps have per-tenant iss
+            issuer=issuer,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Microsoft id_token verify failed: {e}")
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Microsoft token")
