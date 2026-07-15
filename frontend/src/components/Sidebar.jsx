@@ -1,16 +1,18 @@
 import { useSelector, useDispatch } from 'react-redux';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { toggleSidebar } from '@/store/slices/uiSlice';
+import { toggleSidebar, setTheme } from '@/store/slices/uiSlice';
 import { logout } from '@/store/slices/authSlice';
 import {
   MessageSquare, Sparkles, BarChart3, Wallet, CreditCard, Bell,
   User as UserIcon, Settings, Shield, PanelLeft, PanelLeftClose,
-  Briefcase, Rocket, FileText, GraduationCap, MessagesSquare, Users, Lock, Plus, LogOut
+  Briefcase, Rocket, FileText, GraduationCap, MessagesSquare, Users, Lock, Plus, LogOut,
+  Sun, Moon, Monitor
 } from 'lucide-react';
 import { NAV } from '@/constants/testIds';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const primaryNav = [
   { to: '/chat', label: 'AI Workspace', Icon: MessageSquare, tid: NAV.linkChat },
@@ -35,6 +37,7 @@ const comingSoon = [
 export default function Sidebar({ onMobileClose, mobile = false }) {
   const collapsed = useSelector((s) => s.ui.sidebarCollapsed) && !mobile;
   const wallet = useSelector((s) => s.ui.walletBalance);
+  const theme = useSelector((s) => s.ui.theme);
   const user = useSelector((s) => s.auth.user);
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -169,6 +172,21 @@ export default function Sidebar({ onMobileClose, mobile = false }) {
               </>
             )}
           </div>
+          {!collapsed && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" data-testid={NAV.themeToggle}>
+                  {theme === 'dark' ? <Moon className="h-4 w-4" /> : theme === 'light' ? <Sun className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+                  <span className="capitalize">{theme} theme</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => dispatch(setTheme('light'))}><Sun className="h-4 w-4 mr-2" /> Light</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => dispatch(setTheme('dark'))}><Moon className="h-4 w-4 mr-2" /> Dark</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => dispatch(setTheme('system'))}><Monitor className="h-4 w-4 mr-2" /> System</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </aside>
     </TooltipProvider>
