@@ -7,6 +7,7 @@ import api from '../api';
 import { setAuth } from '../store/slices/authSlice';
 import { colors, spacing, fontSize } from '../theme';
 import { Button, Input, Label } from '../components/UI';
+import SocialAuthButtons from '../components/SocialAuthButtons';
 
 export default function RegisterScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -42,7 +43,11 @@ export default function RegisterScreen({ navigation }) {
         <Text style={{ color: colors.text, fontSize: fontSize.hero, fontWeight: '600', letterSpacing: -1 }}>Create account</Text>
         <Text style={{ color: colors.textMuted, fontSize: fontSize.md, marginTop: 8 }}>Start with 100 free credits. No card required.</Text>
 
-        <View style={{ marginTop: 32, gap: 12 }}>
+        <View style={{ marginTop: 32 }}>
+          <SocialAuthButtons />
+        </View>
+
+        <View style={{ gap: 12 }}>
           <View>
             <Label>Full name</Label>
             <Input value={name} onChangeText={setName} placeholder="Jane Doe" autoCapitalize="words" testID="register-name" />

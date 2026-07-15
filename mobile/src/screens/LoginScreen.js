@@ -7,6 +7,7 @@ import api from '../api';
 import { setAuth } from '../store/slices/authSlice';
 import { colors, spacing, fontSize } from '../theme';
 import { Button, Input, Label } from '../components/UI';
+import SocialAuthButtons from '../components/SocialAuthButtons';
 
 export default function LoginScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -38,7 +39,11 @@ export default function LoginScreen({ navigation }) {
         <Text style={{ color: colors.text, fontSize: fontSize.hero, fontWeight: '600', letterSpacing: -1 }}>Welcome back</Text>
         <Text style={{ color: colors.textMuted, fontSize: fontSize.md, marginTop: 8 }}>Sign in to continue to your workspace.</Text>
 
-        <View style={{ marginTop: 32, gap: 12 }}>
+        <View style={{ marginTop: 32 }}>
+          <SocialAuthButtons />
+        </View>
+
+        <View style={{ gap: 12 }}>
           <View>
             <Label>Email</Label>
             <Input value={email} onChangeText={setEmail} placeholder="you@company.com" keyboardType="email-address" testID="login-email" />

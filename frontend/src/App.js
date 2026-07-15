@@ -10,6 +10,7 @@ import AuthCallback from '@/pages/AuthCallback';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import AppLayout from '@/components/AppLayout';
+import MsalRedirectHandler from '@/components/MsalRedirectHandler';
 import Chat from '@/pages/Chat';
 import Usage from '@/pages/Usage';
 import Wallet from '@/pages/Wallet';
@@ -26,6 +27,7 @@ function App() {
       <ThemeProvider>
         <BrowserRouter>
           <Toaster position="top-right" richColors />
+          <MsalRedirectHandler />
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<AuthPage mode="login" />} />

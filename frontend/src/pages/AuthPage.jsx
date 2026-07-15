@@ -116,17 +116,28 @@ export default function AuthPage({ mode }) {
     }
   }, [oauthCfg.apple?.enabled, oauthCfg.apple?.client_id]);
 
-  // Initialize MSAL on mount and clear any stuck interaction state (prevents interaction_in_progress errors)
+  // Initialize MSAL on mount + handle redirect return (loginRedirect flow)
   useEffect(() => {
     if (!oauthCfg.microsoft?.enabled || !oauthCfg.microsoft?.client_id) return;
     (async () => {
       try {
         const msal = getMsal();
         await msal.initialize();
-        // Complete any pending redirect from a previous session
-        await msal.handleRedirectPromise();
+        const result = await msal.handleRedirectPromise();
+        // Only auto-complete if we initiated the redirect from this app
+        const pending = (() => { try { return sessionStorage.getItem('iema_msal_pending'); } catch { return null; } })();
+        if (result?.idToken && pending) {
+          try { sessionStorage.removeItem('iema_msal_pending'); } catch { /* ignore */ }
+          setLoading(true);
+          try {
+            const { data } = await api.post('/auth/microsoft-verify', { id_token: result.idToken });
+            handleAuthSuccess(data, 'Microsoft');
+          } catch (err) {
+            console.error('[MS] verify error:', err);
+            toast.error(err.response?.data?.detail || 'Microsoft verification failed');
+          } finally { setLoading(false); }
+        }
       } catch (e) {
-        // If init/handleRedirectPromise complains about stuck state, clear it
         console.warn('[MS] init/handleRedirect error, clearing state:', e?.errorCode);
         clearMsalInteractionState();
         msalInstance = null;
@@ -196,47 +207,31 @@ export default function AuthPage({ mode }) {
   const microsoftSignIn = async () => {
     if (!oauthCfg.microsoft?.enabled) { toast.info('Microsoft OAuth not configured'); return; }
     setLoading(true);
-    const doPopup = async () => {
+    try {
       const msal = getMsal();
       await msal.initialize();
-      // Resolve any pending redirect interaction from a prior attempt
-      try { await msal.handleRedirectPromise(); } catch (e) { /* ignore */ }
-      return msal.loginPopup({
+      try { await msal.handleRedirectPromise(); } catch { /* ignore */ }
+      // Full-page redirect flow — more reliable than popup, avoids the timed_out issue
+      // where the popup's hash fragment gets consumed by React Router before MSAL polls it.
+      // Stash a marker so we know we initiated Microsoft login when we come back.
+      try { sessionStorage.setItem('iema_msal_pending', '1'); } catch { /* ignore */ }
+      await msal.loginRedirect({
         scopes: ['openid', 'email', 'profile'],
         prompt: 'select_account',
       });
-    };
-    try {
-      let result;
-      try {
-        result = await doPopup();
-      } catch (err) {
-        // Handle stuck interaction from a previous popup that wasn't completed
-        const code = err?.errorCode || '';
-        if (code === 'interaction_in_progress' || (err?.message || '').includes('interaction_in_progress')) {
-          console.warn('[MS] Clearing stuck interaction state, retrying...');
-          clearMsalInteractionState();
-          // Reset instance so it re-initializes cleanly
-          msalInstance = null;
-          result = await doPopup();
-        } else {
-          throw err;
-        }
-      }
-      console.log('[MS] loginPopup result:', { hasIdToken: !!result?.idToken, account: result?.account?.username });
-      const idToken = result?.idToken;
-      if (!idToken) {
-        console.error('[MS] No idToken in MSAL result:', result);
-        toast.error('Microsoft did not return an ID token. In Azure Portal → App → Authentication → tick "ID tokens" under Implicit grant, save, and try again.');
-        return;
-      }
-      const { data } = await api.post('/auth/microsoft-verify', { id_token: idToken });
-      handleAuthSuccess(data, 'Microsoft');
+      // loginRedirect navigates the whole page; code below only runs on error.
     } catch (err) {
+      try { sessionStorage.removeItem('iema_msal_pending'); } catch { /* ignore */ }
       console.error('[MS] sign-in error:', err);
       const code = err?.errorCode || '';
       const msg = err?.errorMessage || err?.message || '';
       if (code === 'user_cancelled' || msg.includes('user_cancelled') || msg.includes('User cancelled')) return;
+      if (code === 'interaction_in_progress') {
+        clearMsalInteractionState();
+        msalInstance = null;
+        toast.info('Please click Microsoft again — cleared previous session');
+        return;
+      }
       const detail = err?.response?.data?.detail;
       toast.error(detail || msg || `Microsoft sign-in failed${code ? ' (' + code + ')' : ''}`);
     } finally { setLoading(false); }
