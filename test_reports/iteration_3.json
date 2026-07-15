@@ -1,0 +1,34 @@
+{
+  "summary": "Verified auth bug fix (Google GIS switch + email/password regression). Backend: 9/9 pytest passed. Frontend: /login renders GSI iframe, script tag injected, admin login and fresh registration both redirect to /chat successfully. All 7 request-specified checks pass. One non-blocking config note: Google's GSI logs 'origin not allowed for the given client ID' on the preview host — code is correct; user must add the Emergent preview origin (https://iema-ai-platform.preview.emergentagent.com) to Google Cloud Console → Authorized JavaScript Origins for the button click to actually complete sign-in.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_bugfix.py",
+    "/app/test_reports/pytest/pytest_results_iter3.xml"
+  ],
+  "action_items": [
+    "USER ACTION (not a code bug): In Google Cloud Console → OAuth 2.0 Client ID (818667754847-v09vd...), add https://iema-ai-platform.preview.emergentagent.com to 'Authorized JavaScript Origins' so the GIS popup can complete on the preview URL. Code implementation is correct; button renders and callback is wired to /api/auth/google-verify."
+  ],
+  "critical_code_review_comments": [
+    "Consider hiding the /auth/google (code-flow) endpoint or documenting that it is retained only for backward-compat — new flow is /auth/google-verify.",
+    "AuthPage.jsx GSI init effect: window.google may be truthy but GIS iframe render can silently no-op if origin not allowed — currently caught by try/catch with no user feedback. Consider adding a small hint to the container when GIS reports errors (nice-to-have).",
+    "google_id_token_verify uses tokeninfo REST endpoint (extra HTTP hop). For lower latency and offline verification, google-auth library's id_token.verify_oauth2_token is preferred, but current approach is functionally correct."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth_bugfix.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin siddharth.bose@iemlabs.com / Admin@12345 (from /app/memory/test_credentials.md); dynamic register email used per run.",
+  "seed_data_creation": "One user auto-registered per test run (test_bugfix_<epoch>@example.com). Not cleaned up — negligible.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth bug fix verified. Backend endpoint POST /api/auth/google-verify returns 400 for invalid tokens (never 500), and legacy POST /api/auth/google still exists. Email/password login and register regression pass end-to-end via UI. GSI script + iframe injection confirmed in browser. Google origin-allowlist is a user-side Google Cloud Console setting, not a code issue.",
+  "rca of the issue": "Original user complaint 'Sign Up/Sign In doesn't work' was caused by Google OAuth code-flow requiring redirect_uri (${origin}/auth/callback) that was not registered in Google Cloud Console. Fix: switched to Google Identity Services id_token popup flow (no redirect_uri needed, only origin allowlist). Backend now exposes /auth/google-verify that validates the ID token via Google tokeninfo, checks aud==GOOGLE_CLIENT_ID and iss==accounts.google.com. Email/password flows were never actually broken and are confirmed working. Only remaining step is user-side origin registration in Google Cloud Console."
+}

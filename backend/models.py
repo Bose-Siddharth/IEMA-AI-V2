@@ -38,6 +38,10 @@ class OAuthCodeRequest(BaseModel):
     redirect_uri: str
 
 
+class GoogleIdTokenRequest(BaseModel):
+    credential: str  # Google-issued JWT id_token from GIS
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

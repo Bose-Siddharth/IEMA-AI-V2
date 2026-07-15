@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, status
 from bson import ObjectId
 from models import (
     RegisterRequest, LoginRequest, RefreshRequest, TokenPair, UserPublic,
-    OAuthCodeRequest, UserUpdateRequest, User,
+    OAuthCodeRequest, GoogleIdTokenRequest, UserUpdateRequest, User,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest
 )
 from auth import (
@@ -148,6 +148,53 @@ async def delete_me(user: User = Depends(get_current_user)):
     await users_col.delete_one({"_id": ObjectId(user.id)})
     await sessions_col.delete_many({"user_id": user.id})
     return {"ok": True, "message": "Account permanently deleted"}
+
+
+@router.post("/google-verify", response_model=dict)
+async def google_id_token_verify(req: GoogleIdTokenRequest, request: Request):
+    """Verify a Google-issued ID token (from Google Identity Services). No redirect_uri needed."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Google OAuth not configured")
+    async with httpx.AsyncClient(timeout=10) as http:
+        r = await http.get("https://oauth2.googleapis.com/tokeninfo", params={"id_token": req.credential})
+        if r.status_code != 200:
+            logger.error(f"Google tokeninfo failed: {r.text}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Google token")
+        info = r.json()
+    if info.get("aud") != GOOGLE_CLIENT_ID:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Token audience mismatch")
+    if info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Token issuer invalid")
+
+    email = (info.get("email") or "").lower()
+    if not email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No email in Google account")
+    name = info.get("name") or email.split("@")[0]
+    avatar = info.get("picture")
+    provider_id = info.get("sub")
+
+    doc = await users_col.find_one({"email": email})
+    if doc:
+        user = User.from_mongo(doc)
+        await users_col.update_one({"_id": ObjectId(user.id)}, {"$set": {"last_login_at": now_iso(), "avatar": avatar or user.avatar}})
+    else:
+        user = User(
+            email=email, name=name, avatar=avatar,
+            provider="google", provider_id=provider_id, email_verified=True,
+            last_login_at=now_iso(),
+        )
+        data = user.to_mongo()
+        result = await users_col.insert_one(data)
+        user.id = str(result.inserted_id)
+        await get_or_create_wallet(user.id)
+
+    access = create_access_token(user.id, user.role)
+    refresh = create_refresh_token(user.id)
+    await store_session(user.id, refresh, request.headers.get("user-agent", ""), request.client.host if request.client else "")
+    return {
+        "user": _user_to_public(user).model_dump(),
+        "tokens": TokenPair(access_token=access, refresh_token=refresh).model_dump(),
+    }
 
 
 @router.post("/google", response_model=dict)
