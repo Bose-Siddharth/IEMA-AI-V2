@@ -42,6 +42,10 @@ class GoogleIdTokenRequest(BaseModel):
     credential: str  # Google-issued JWT id_token from GIS
 
 
+class IdTokenRequest(BaseModel):
+    id_token: str
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

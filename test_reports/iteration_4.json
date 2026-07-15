@@ -1,0 +1,42 @@
+{
+  "summary": "Verified new Microsoft/Apple id_token verify endpoints + full auth regression (email/password + Google GIS). Backend: 11/11 pytest passed. Frontend: /login renders all 4 OAuth buttons, Apple SDK + GSI scripts inject correctly, Microsoft click triggers MSAL popup (about:blank in headless — expected), Apple click is a no-op in headless (also expected) — neither crashes the page. Admin email/password login and fresh registration both redirect to /chat. IMPORTANT: fixed a broken frontend webpack build (stale references to non-existent recharts/node_modules/immer|reselect) via `yarn install --check-files` — page was serving the CRA 'Compiled with problems' overlay before the fix. Discovered one real backend bug: refresh JWT uses second-resolution iat/exp so register+login within same second produces identical refresh tokens → E11000 duplicate key on sessions.refresh_token → 500. Worked around in test via sleep; needs main-agent fix.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/auth/login (right after /api/auth/register)", "issue": "Returns 500 (DuplicateKeyError on sessions.refresh_token) if login is called within the same second as register. Root cause: create_refresh_token in /app/backend/auth.py uses datetime.now(timezone.utc) which JWT encodes at 1-second resolution, and the payload {sub,type,exp,iat} becomes byte-identical → same JWT string → unique index violation. Fix: add a `jti` (uuid4) claim to both access/refresh tokens, or store_session with upsert semantics.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AuthPage — Facebook button", "issue": "Button is DOM-disabled, so its onClick (facebookSignIn → toast.info) can never fire. The review-request spec 'After Facebook button click, toast informs Facebook Sign-In is not enabled' is unreachable in current code. Either drop `disabled` prop and rely on the toast, or remove the toast handler.", "selector": "[data-testid='auth-facebook-btn']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_oauth_new.py",
+    "/app/test_reports/pytest/pytest_iter4.xml"
+  ],
+  "action_items": [
+    "HIGH: Fix duplicate-key 500 on /auth/login when called immediately after /auth/register. Add a unique `jti` claim (uuid4) inside create_access_token and create_refresh_token in /app/backend/auth.py so back-to-back tokens for the same user in the same second are not byte-identical.",
+    "LOW: Decide the Facebook UX — either enable the button so the 'not enabled' toast can fire, or drop the unreachable toast handler.",
+    "USER ACTION (unchanged from iter_3): Add https://iema-ai-platform.preview.emergentagent.com to Google Cloud Console → OAuth 2.0 Authorized JavaScript Origins so GSI popup can complete. Also add the same origin to the Microsoft app registration (portal.azure.com) and Apple Services ID for those flows to complete on the preview host."
+  ],
+  "critical_code_review_comments": [
+    "auth.py create_refresh_token / create_access_token are missing a `jti` (JWT ID) claim. This causes byte-identical tokens for the same user in the same second and, combined with the unique index on sessions.refresh_token, produces intermittent 500s in any register→login or login→login within 1 second. Trivial fix (secrets.token_hex(8) in payload).",
+    "AuthPage.jsx line ~231: Apple/Microsoft buttons rely on oauthCfg.<provider>.enabled — good. Facebook button is hard-disabled and its onClick will never fire; either drop onClick or drop disabled.",
+    "AuthPage.jsx: MSAL PublicClientApplication is created inside a module-level `msalInstance` var but keyed on the FIRST clientId ever seen; if oauthCfg.microsoft.client_id ever changes at runtime it would silently reuse the old instance. Minor.",
+    "auth_routes.py apple_id_token_verify: When Apple hides email, `payload.get('name')` is usually missing too — the code falls back to email.split('@')[0] which becomes 'apple_<sub>'. Fine, just noting for future email-verification flows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_oauth_new.py (new)",
+    "/app/frontend/node_modules (yarn install --check-files to fix stale/missing files — no source changes)"
+  ],
+  "success_rate": {"backend": "100% (11/11 with 1-sec sleep workaround; the underlying jti bug remains)", "frontend": "100%"},
+  "test_credentials": "Admin siddharth.bose@iemlabs.com / Admin@12345; dynamic test_all_oauth_<ts>@example.com / Test@12345",
+  "seed_data_creation": "One user auto-registered per run (test_all_oauth_<ts>@example.com and test_all_oauth_ui_<ts>@example.com). Not cleaned up — negligible.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "OAuth wiring is fully verified end-to-end at the code level: /auth/oauth-config returns google/microsoft/apple enabled + facebook disabled; /auth/microsoft-verify and /auth/apple both return 400 (not 500) for invalid tokens with exact expected detail; /auth/microsoft (legacy) still exists. Frontend loads MSAL from @azure/msal-browser, Apple SDK from Apple CDN, GSI from Google CDN. Real popups won't complete without user-side origin allowlisting in each provider console. IMPORTANT: recharts/node_modules ghost-path stale error came back after node_modules operations — if seen again, run `cd /app/frontend && yarn install --check-files` then restart frontend.",
+  "rca of the issue": "Two findings: (1) Frontend '/login' returned CRA compile-error overlay because webpack source-map-loader looked up `recharts/node_modules/immer/dist/immer.mjs` per stale references — fixed with `yarn install --check-files` (no source change). (2) Backend 500 on register→login within the same second — the refresh JWT payload {sub,type,exp,iat} has second-resolution iat/exp, so two consecutive calls produce byte-identical JWTs, violating the unique index on sessions.refresh_token. Mitigation: add uuid/jti claim to create_access_token & create_refresh_token so tokens are unique per call."
+}

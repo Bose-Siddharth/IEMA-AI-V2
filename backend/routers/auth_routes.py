@@ -2,13 +2,14 @@
 import os
 import secrets
 import httpx
+import jwt as pyjwt
 import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from bson import ObjectId
 from models import (
     RegisterRequest, LoginRequest, RefreshRequest, TokenPair, UserPublic,
-    OAuthCodeRequest, GoogleIdTokenRequest, UserUpdateRequest, User,
+    OAuthCodeRequest, GoogleIdTokenRequest, IdTokenRequest, UserUpdateRequest, User,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest
 )
 from auth import (
@@ -26,7 +27,25 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
 MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
+APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
 APP_URL = os.environ.get("APP_URL", "")
+
+_ms_jwks = None
+_apple_jwks = None
+
+
+def _get_ms_jwks():
+    global _ms_jwks
+    if _ms_jwks is None:
+        _ms_jwks = pyjwt.PyJWKClient("https://login.microsoftonline.com/common/discovery/v2.0/keys")
+    return _ms_jwks
+
+
+def _get_apple_jwks():
+    global _apple_jwks
+    if _apple_jwks is None:
+        _apple_jwks = pyjwt.PyJWKClient("https://appleid.apple.com/auth/keys")
+    return _apple_jwks
 
 email_codes_col = db["email_codes"]
 reset_tokens_col = db["reset_tokens"]
@@ -409,6 +428,109 @@ async def oauth_config():
     return {
         "google": {"enabled": bool(GOOGLE_CLIENT_ID), "client_id": GOOGLE_CLIENT_ID},
         "microsoft": {"enabled": bool(MICROSOFT_CLIENT_ID), "client_id": MICROSOFT_CLIENT_ID},
-        "apple": {"enabled": False, "reason": "requires verified domain"},
+        "apple": {"enabled": bool(APPLE_CLIENT_ID), "client_id": APPLE_CLIENT_ID},
         "facebook": {"enabled": False, "reason": "not configured"},
+    }
+
+
+# ================= MICROSOFT ID TOKEN VERIFY (from MSAL popup) =================
+@router.post("/microsoft-verify", response_model=dict)
+async def microsoft_id_token_verify(req: IdTokenRequest, request: Request):
+    """Verify a Microsoft ID token obtained via MSAL popup. No redirect_uri needed for verification."""
+    if not MICROSOFT_CLIENT_ID:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Microsoft OAuth not configured")
+    try:
+        jwks = _get_ms_jwks()
+        signing_key = jwks.get_signing_key_from_jwt(req.id_token)
+        # Microsoft uses per-tenant issuers, so we don't force iss check but verify signature + aud
+        payload = pyjwt.decode(
+            req.id_token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=MICROSOFT_CLIENT_ID,
+            options={"verify_iss": False},  # Multi-tenant apps have per-tenant iss
+        )
+    except Exception as e:
+        logger.exception(f"Microsoft id_token verify failed: {e}")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Microsoft token")
+
+    email = (payload.get("email") or payload.get("preferred_username") or "").lower()
+    if not email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No email in Microsoft account")
+    name = payload.get("name") or email.split("@")[0]
+    provider_id = payload.get("oid") or payload.get("sub")
+
+    doc = await users_col.find_one({"email": email})
+    if doc:
+        user = User.from_mongo(doc)
+        await users_col.update_one({"_id": ObjectId(user.id)}, {"$set": {"last_login_at": now_iso()}})
+    else:
+        user = User(
+            email=email, name=name, provider="microsoft", provider_id=provider_id,
+            email_verified=True, last_login_at=now_iso(),
+        )
+        data = user.to_mongo()
+        result = await users_col.insert_one(data)
+        user.id = str(result.inserted_id)
+        await get_or_create_wallet(user.id)
+
+    access = create_access_token(user.id, user.role)
+    refresh = create_refresh_token(user.id)
+    await store_session(user.id, refresh, request.headers.get("user-agent", ""), request.client.host if request.client else "")
+    return {
+        "user": _user_to_public(user).model_dump(),
+        "tokens": TokenPair(access_token=access, refresh_token=refresh).model_dump(),
+    }
+
+
+# ================= APPLE ID TOKEN VERIFY (from Sign in with Apple JS) =================
+@router.post("/apple", response_model=dict)
+async def apple_id_token_verify(req: IdTokenRequest, request: Request):
+    """Verify an Apple ID token obtained via Sign in with Apple JS."""
+    if not APPLE_CLIENT_ID:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Apple Sign-In not configured")
+    try:
+        jwks = _get_apple_jwks()
+        signing_key = jwks.get_signing_key_from_jwt(req.id_token)
+        payload = pyjwt.decode(
+            req.id_token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=APPLE_CLIENT_ID,
+            issuer="https://appleid.apple.com",
+        )
+    except Exception as e:
+        logger.exception(f"Apple id_token verify failed: {e}")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Apple token")
+
+    email = (payload.get("email") or "").lower()
+    if not email:
+        # Apple can hide email — use sub as pseudo-email
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No identity in Apple token")
+        email = f"apple_{sub}@privaterelay.appleid.com"
+    name = payload.get("name") or email.split("@")[0]
+    provider_id = payload.get("sub")
+
+    doc = await users_col.find_one({"$or": [{"email": email}, {"provider_id": provider_id, "provider": "apple"}]})
+    if doc:
+        user = User.from_mongo(doc)
+        await users_col.update_one({"_id": ObjectId(user.id)}, {"$set": {"last_login_at": now_iso()}})
+    else:
+        user = User(
+            email=email, name=name, provider="apple", provider_id=provider_id,
+            email_verified=True, last_login_at=now_iso(),
+        )
+        data = user.to_mongo()
+        result = await users_col.insert_one(data)
+        user.id = str(result.inserted_id)
+        await get_or_create_wallet(user.id)
+
+    access = create_access_token(user.id, user.role)
+    refresh = create_refresh_token(user.id)
+    await store_session(user.id, refresh, request.headers.get("user-agent", ""), request.client.host if request.client else "")
+    return {
+        "user": _user_to_public(user).model_dump(),
+        "tokens": TokenPair(access_token=access, refresh_token=refresh).model_dump(),
     }
