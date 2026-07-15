@@ -91,7 +91,11 @@ async def delete_conversation(conv_id: str, user: User = Depends(get_current_use
 async def stream_message(req: SendMessageRequest, user: User = Depends(get_current_user)):
     """SSE streaming endpoint for chat messages."""
     # Check credits
-    if not await has_credits(user.id, CREDIT_COST_MESSAGE):
+    total_cost = CREDIT_COST_MESSAGE
+    if req.attachments:
+        image_count = sum(1 for a in req.attachments if (a.get("content_type") or "").startswith("image/"))
+        total_cost += image_count * float(os.environ.get("CREDIT_COST_IMAGE_INPUT", "3"))
+    if not await has_credits(user.id, total_cost):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient credits. Please recharge your wallet.")
 
     # Get or create conversation
@@ -114,6 +118,7 @@ async def stream_message(req: SendMessageRequest, user: User = Depends(get_curre
         user_id=user.id,
         role="user",
         content=req.content,
+        attachments=req.attachments or [],
     )
     user_result = await messages_col.insert_one(user_msg.to_mongo())
     user_msg.id = str(user_result.inserted_id)
@@ -128,7 +133,7 @@ async def stream_message(req: SendMessageRequest, user: User = Depends(get_curre
         model = None
         full_text = ""
         try:
-            async for evt in stream_ai_response(conv_id, req.content, history, req.model):
+            async for evt in stream_ai_response(conv_id, req.content, history, req.model, attachments=req.attachments):
                 if evt["type"] == "meta":
                     provider = evt["provider"]
                     model = evt["model"]
@@ -155,11 +160,11 @@ async def stream_message(req: SendMessageRequest, user: User = Depends(get_curre
                     content=full_text,
                     provider=provider,
                     model=model,
-                    credits_used=CREDIT_COST_MESSAGE,
+                    credits_used=total_cost,
                 )
                 asst_res = await messages_col.insert_one(asst_msg.to_mongo())
                 # Deduct credits
-                await deduct_credits(user.id, CREDIT_COST_MESSAGE, "ai_usage", f"Chat message ({model})", conv_id)
+                await deduct_credits(user.id, total_cost, "ai_usage", f"Chat message ({model})", conv_id)
                 # Update conversation
                 await conversations_col.update_one(
                     {"_id": ObjectId(conv_id)},
@@ -171,10 +176,10 @@ async def stream_message(req: SendMessageRequest, user: User = Depends(get_curre
                     "conversation_id": conv_id,
                     "provider": provider,
                     "model": model,
-                    "credits_used": CREDIT_COST_MESSAGE,
+                    "credits_used": total_cost,
                     "created_at": now_iso(),
                 })
-                yield f"data: {json.dumps({'type': 'saved', 'assistant_message_id': str(asst_res.inserted_id), 'credits_used': CREDIT_COST_MESSAGE})}\n\n"
+                yield f"data: {json.dumps({'type': 'saved', 'assistant_message_id': str(asst_res.inserted_id), 'credits_used': total_cost})}\n\n"
         except Exception as e:
             logger.exception("Chat stream error")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

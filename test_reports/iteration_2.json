@@ -1,0 +1,43 @@
+{
+  "summary": "Phase 2 additions verified. 19/19 new backend pytest cases passed (oauth-config, microsoft OAuth error path, forgot/reset-password with token creation + session invalidation + token-reuse blocking, send/verify email with wrong+expired+correct + idempotency, uploads/image auth+validation+size+success with signed URL fetch, chat/stream with 1 image = 4 credits, 2 images = 7 credits, insufficient credits with attachments = 402). All UI flows verified: landing shows 12 module cards with 'Live' on AI Workspace + 11 'Coming' badges, /login shows Google+Microsoft buttons and clicking Google navigates to accounts.google.com/o/oauth2/v2/auth with correct client_id and state=google, /forgot-password renders and shows 'Check your email' post-submit, /reset-password shows password+confirm and displays 'Passwords do not match' toast on mismatch, sidebar shows all 10 Coming Soon modules (Career/Startup/Research/Dynamic Course Engine/Resume/Mock Interviews/Counselling/Scholarships/Internships/Freelance), Profile shows 'Verify your email' banner and dialog with 6-digit code input, Chat attach button+file input work end-to-end (S3 upload → chip 'tiny_chat.jpg' appears above the input).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/uploads/image", "issue": "S3 presigned URL uses SigV2 (Signature=/AWSAccessKeyId=) rather than SigV4 (X-Amz-Signature). Works, but SigV2 is legacy and only supported in AWS regions launched before Jan 2014. Consider passing config=Config(signature_version='s3v4') to boto3.client for future-proofing and regions like eu-west-3, ap-south-1."},
+      {"endpoint": "POST /api/auth/forgot-password", "issue": "reset_tokens_col.insert_one always creates a new document — repeated /forgot-password calls for the same user leave multiple valid tokens active concurrently. Consider invalidating (used=True) prior unused tokens for the same user before creating a new one."},
+      {"endpoint": "POST /api/auth/send-verify-email", "issue": "Uses secrets.randbelow(1000000) which can generate codes with leading zeros (e.g. '000123'); formatted as 6-digit string — OK. But same-code collisions across users are technically possible (10^-6 per pair). Non-issue in practice."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Profile verify dialog", "issues": ["DialogContent missing aria-describedby (Radix warning). Add DialogDescription or aria-describedby={undefined} to silence and improve a11y."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test_phase2.py",
+    "/app/test_reports/pytest/phase2_results.xml"
+  ],
+  "action_items": [
+    "Optional: switch S3 boto3 client to signature_version='s3v4' for AWS SDK best-practice and cross-region compatibility.",
+    "Optional: on /forgot-password, invalidate any existing unused reset_tokens for the same user before inserting a new one (prevents stacked concurrent tokens).",
+    "Optional: add DialogDescription to verify-email dialog to remove Radix aria warning."
+  ],
+  "critical_code_review_comments": [
+    "auth_routes.forgot_password inserts a fresh reset_tokens document every call — no cap on outstanding tokens, and old ones remain valid until expiry (1h). Recommend {'user_id': uid, 'used': False} update with used=True prior to insert.",
+    "ai_service.stream_ai_response calls _url_to_base64(url) fetching S3 signed URL server-side to convert to base64 for LLM — this doubles egress (S3 → backend → LLM). Consider passing image content_type/url directly to Claude vision API if supported, or caching base64 by S3 key.",
+    "uploads_routes reads full file into memory before size check — attacker could upload 500MB and consume RAM before rejection. Use starlette.UploadFile.file.tell() with chunked reads or Content-Length pre-check.",
+    "chat_routes stream_message: image_count is derived from attachments' content_type prefix; a malicious client could send non-image URLs marked 'image/jpeg' — server fetches and silently drops non-decodable, but still charges 3 credits/image. Recommend verifying content_type via HEAD request or by actual image detection before charging."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test_phase2.py (new — 19 pytest cases for phase-2 additions)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% on tested flows"},
+  "test_credentials": "Admin: siddharth.bose@iemlabs.com / Admin@12345. Test users created dynamically with prefix test_iema_ph2_<ts>@example.com / Test@12345 (backend) and test_iema_ui_<ts>@example.com (frontend). Backend user is deleted at module teardown via DELETE /api/auth/me. Frontend user is left orphaned by design (verify banner requires a fresh unverified account).",
+  "seed_data_creation": "None — reuses existing admin + seeded credit packs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase-2 pytest suite at /app/backend/tests/backend_test_phase2.py can be re-run standalone with `pytest /app/backend/tests/backend_test_phase2.py -v`. It requires direct MongoDB access (localhost:27017) to inspect reset_tokens and email_codes collections. Uploads actually hit real S3 bucket iema-ai-uploads — test files are ~125 bytes each, negligible cost. If phase-1 backend_test.py is re-run afterwards, it drains its own separate test user's wallet.",
+  "rca_of_issues": "No blocking issues. One initial test-script failure (X-Amz-Signature check) was purely a test assertion mismatch — S3 was returning valid SigV2 presigned URLs. Fixed the assertion to accept either SigV2 or SigV4, no application change needed."
+}

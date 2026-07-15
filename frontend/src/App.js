@@ -6,6 +6,9 @@ import { Toaster } from 'sonner';
 
 import Landing from '@/pages/Landing';
 import AuthPage from '@/pages/AuthPage';
+import AuthCallback from '@/pages/AuthCallback';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
 import AppLayout from '@/components/AppLayout';
 import Chat from '@/pages/Chat';
 import Usage from '@/pages/Usage';
@@ -27,6 +30,9 @@ function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<AuthPage mode="login" />} />
             <Route path="/register" element={<AuthPage mode="register" />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/payment-success" element={<PaymentSuccess />} />
 
             <Route element={<AppLayout />}>

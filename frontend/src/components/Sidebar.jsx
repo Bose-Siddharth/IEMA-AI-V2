@@ -6,7 +6,7 @@ import {
   MessageSquare, Sparkles, BarChart3, Wallet, CreditCard, Bell,
   User as UserIcon, Settings, Shield, PanelLeft, PanelLeftClose,
   Briefcase, Rocket, FileText, GraduationCap, MessagesSquare, Users, Lock, Plus, LogOut,
-  Sun, Moon, Monitor
+  Sun, Moon, Monitor, FlaskConical, Heart, Award, MapPin, Wrench
 } from 'lucide-react';
 import { NAV } from '@/constants/testIds';
 import { cn } from '@/lib/utils';
@@ -27,11 +27,14 @@ const primaryNav = [
 const comingSoon = [
   { label: 'Career Intelligence', Icon: Briefcase },
   { label: 'Startup Intelligence', Icon: Rocket },
+  { label: 'Research Intelligence', Icon: FlaskConical },
+  { label: 'Dynamic Course Engine', Icon: GraduationCap },
   { label: 'Resume Intelligence', Icon: FileText },
-  { label: 'Course Generator', Icon: GraduationCap },
   { label: 'Mock Interviews', Icon: MessagesSquare },
-  { label: 'AI Mentor', Icon: Sparkles },
-  { label: 'Community', Icon: Users },
+  { label: 'Counselling', Icon: Heart },
+  { label: 'Scholarships', Icon: Award },
+  { label: 'Internships', Icon: MapPin },
+  { label: 'Freelance Intelligence', Icon: Wrench },
 ];
 
 export default function Sidebar({ onMobileClose, mobile = false }) {

@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
   Send, Sparkles, MessageSquare, Trash2, Pin, PinOff, Loader2,
-  Copy, Check, Search, Plus
+  Copy, Check, Search, Plus, Paperclip, X, ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -27,6 +27,9 @@ export default function Chat() {
   const [streamText, setStreamText] = useState('');
   const [meta, setMeta] = useState(null);
   const [search, setSearch] = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const scrollRef = useRef(null);
   const dispatch = useDispatch();
@@ -61,14 +64,17 @@ export default function Chat() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if ((!text && attachments.length === 0) || streaming) return;
+    if (!text) { toast.error('Please add a message with your image'); return; }
 
     setInput('');
     setStreaming(true);
     setStreamText('');
     setMeta(null);
+    const sentAttachments = [...attachments];
+    setAttachments([]);
     // Optimistically add user message
-    const tempUserMsg = { id: 'tmp-' + Date.now(), role: 'user', content: text };
+    const tempUserMsg = { id: 'tmp-' + Date.now(), role: 'user', content: text, attachments: sentAttachments };
     setMessages((m) => [...m, tempUserMsg]);
 
     try {
@@ -78,7 +84,7 @@ export default function Chat() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${access_token}`,
         },
-        body: JSON.stringify({ content: text, conversation_id: activeId }),
+        body: JSON.stringify({ content: text, conversation_id: activeId, attachments: sentAttachments }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -153,6 +159,31 @@ export default function Chat() {
   };
 
   const filtered = conversations.filter(c => c.title.toLowerCase().includes(search.toLowerCase()));
+
+  const handleFilePick = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) { toast.error(`${file.name}: only images supported`); continue; }
+        if (file.size > 8 * 1024 * 1024) { toast.error(`${file.name}: max 8MB`); continue; }
+        const form = new FormData();
+        form.append('file', file);
+        const { data } = await api.post('/uploads/image', form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        uploaded.push({ url: data.url, content_type: data.content_type, filename: data.filename, key: data.key });
+      }
+      setAttachments((a) => [...a, ...uploaded]);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Upload failed');
+    } finally { setUploading(false); }
+  };
+
+  const removeAttachment = (idx) => setAttachments((a) => a.filter((_, i) => i !== idx));
 
   return (
     <div className="flex h-full min-h-0">
@@ -237,6 +268,22 @@ export default function Chat() {
         {/* Input */}
         <div className="border-t border-border bg-background p-4">
           <div className="max-w-3xl mx-auto">
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {attachments.map((att, idx) => (
+                  <div key={idx} className="relative group inline-flex items-center gap-2 rounded-lg border border-border bg-card px-2 py-1.5 text-xs">
+                    <ImageIcon className="h-3.5 w-3.5 text-primary" />
+                    <span className="truncate max-w-[120px]">{att.filename}</span>
+                    <button
+                      onClick={() => removeAttachment(idx)}
+                      className="h-4 w-4 rounded-full hover:bg-destructive/20 hover:text-destructive flex items-center justify-center"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="relative rounded-xl border border-border bg-card focus-within:border-primary/50 transition-colors">
               <Textarea
                 data-testid={CHAT.input}
@@ -247,12 +294,23 @@ export default function Chat() {
                 }}
                 placeholder="Message IEMA.ai..."
                 rows={1}
-                className="min-h-[52px] max-h-[200px] resize-none border-0 focus-visible:ring-0 pr-12 py-3.5"
+                className="min-h-[52px] max-h-[200px] resize-none border-0 focus-visible:ring-0 pr-24 pl-12 py-3.5"
               />
+              <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={handleFilePick} data-testid="chat-file-input" />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || streaming}
+                className="absolute left-2 bottom-2.5 h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                data-testid="chat-attach-btn"
+                title="Attach image"
+              >
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </button>
               <Button
                 data-testid={CHAT.sendBtn}
                 onClick={handleSend}
-                disabled={!input.trim() || streaming}
+                disabled={(!input.trim() && attachments.length === 0) || streaming}
                 size="icon"
                 className="absolute right-2 bottom-2 h-8 w-8 rounded-lg"
               >
@@ -260,7 +318,7 @@ export default function Chat() {
               </Button>
             </div>
             <div className="text-xs text-muted-foreground text-center mt-2">
-              1 credit per message · Enter to send, Shift+Enter for newline
+              1 credit per message · +3 credits per image · Enter to send, Shift+Enter for newline
             </div>
           </div>
         </div>
@@ -289,6 +347,13 @@ function MessageBlock({ message }) {
         <div className={cn(
           isUser ? 'rounded-2xl rounded-tr-sm bg-primary/10 border border-primary/20 px-4 py-2.5 max-w-[85%]' : 'w-full'
         )}>
+          {message.attachments && message.attachments.length > 0 && (
+            <div className={cn('flex flex-wrap gap-2', isUser ? 'mb-2' : 'mb-3')}>
+              {message.attachments.map((att, idx) => (
+                <img key={idx} src={att.url} alt={att.filename} className="rounded-lg max-h-48 max-w-full border border-border" />
+              ))}
+            </div>
+          )}
           <div className={cn('prose-chat', message.streaming && 'cursor-blink')}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {message.content}

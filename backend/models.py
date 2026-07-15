@@ -118,6 +118,7 @@ class Message(BaseDocument):
     credits_used: float = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: now_utc().isoformat())
 
 
@@ -125,10 +126,29 @@ class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=32000)
     conversation_id: Optional[str] = None
     model: Optional[str] = None  # optional model override
+    attachments: Optional[List[Dict[str, Any]]] = None  # [{url, content_type, filename}]
 
 
 class RenameConversationRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
+
+
+# ================= EMAIL VERIFY / RESET =================
+class SendVerifyRequest(BaseModel):
+    pass  # uses current user from token
+
+
+class VerifyEmailRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=8)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 # ================= CREDIT PACKS =================

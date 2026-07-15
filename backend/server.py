@@ -21,6 +21,7 @@ from routers.pack_routes import router as pack_router
 from routers.payments_routes import router as payments_router
 from routers.notifications_routes import router as notifications_router
 from routers.admin_routes import router as admin_router
+from routers.uploads_routes import router as uploads_router
 
 app = FastAPI(title="IEMA.ai v2 API", version="2.0.0")
 
@@ -45,6 +46,7 @@ api_router.include_router(pack_router)
 api_router.include_router(payments_router)
 api_router.include_router(notifications_router)
 api_router.include_router(admin_router)
+api_router.include_router(uploads_router)
 
 # Stripe webhook needs to be at /api/webhook/stripe (root-of-api)
 from routers.payments_routes import stripe_webhook
