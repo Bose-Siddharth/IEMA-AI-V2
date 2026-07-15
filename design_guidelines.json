@@ -1,0 +1,145 @@
+{
+  "theme": "dark-first-system-aware",
+  "brand_identity": {
+    "name": "IEMA.ai",
+    "vibe": "Architectural Precision, Old Money Tech, Vercel/Cursor aesthetic",
+    "description": "A premium, ultra-fast, minimal AI platform that feels like an elite developer tool."
+  },
+  "colors": {
+    "dark": {
+      "background": "#09090B",
+      "surface": "#121214",
+      "surface_elevated": "#18181B",
+      "border": "#27272A",
+      "border_hover": "#3F3F46",
+      "text_primary": "#FFFFFF",
+      "text_secondary": "#A1A1AA",
+      "accent": "#FFFFFF",
+      "accent_foreground": "#000000",
+      "primary": "#3B82F6",
+      "primary_foreground": "#FFFFFF",
+      "destructive": "#EF4444",
+      "success": "#10B981"
+    },
+    "light": {
+      "background": "#FFFFFF",
+      "surface": "#FAFAFA",
+      "surface_elevated": "#F4F4F5",
+      "border": "#E4E4E7",
+      "border_hover": "#D4D4D8",
+      "text_primary": "#09090B",
+      "text_secondary": "#71717A",
+      "accent": "#000000",
+      "accent_foreground": "#FFFFFF",
+      "primary": "#2563EB",
+      "primary_foreground": "#FFFFFF",
+      "destructive": "#DC2626",
+      "success": "#059669"
+    }
+  },
+  "typography": {
+    "headings": {
+      "font": "Outfit, sans-serif",
+      "weights": ["400", "500", "600"],
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "font": "Manrope, sans-serif",
+      "weights": ["400", "500"],
+      "tracking": "tracking-normal"
+    },
+    "monospace": {
+      "font": "JetBrains Mono, monospace",
+      "weights": ["400"]
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl font-medium tracking-tight",
+      "h2": "text-2xl sm:text-3xl font-medium tracking-tight",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground",
+      "tiny": "text-xs tracking-wider uppercase"
+    }
+  },
+  "layouts": {
+    "app": "flex h-screen overflow-hidden bg-background text-foreground",
+    "sidebar": "w-[260px] flex-shrink-0 border-r border-border bg-surface transition-all duration-300 ease-in-out",
+    "sidebar_collapsed": "w-[64px]",
+    "main_content": "flex-1 flex flex-col h-screen overflow-hidden",
+    "container": "container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl",
+    "bento_grid": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6"
+  },
+  "components": {
+    "buttons": {
+      "primary": "rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 transition-colors",
+      "secondary": "rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 transition-colors",
+      "outline": "rounded-md border border-border bg-transparent hover:bg-accent hover:text-accent-foreground px-4 py-2 transition-colors",
+      "ghost": "rounded-md bg-transparent hover:bg-accent hover:text-accent-foreground px-4 py-2 transition-colors"
+    },
+    "cards": {
+      "base": "rounded-xl border border-border bg-surface p-6 shadow-sm transition-all hover:shadow-md",
+      "interactive": "hover:border-border_hover hover:-translate-y-0.5 cursor-pointer"
+    },
+    "inputs": {
+      "base": "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    },
+    "chat": {
+      "user_bubble": "bg-surface_elevated text-text_primary rounded-2xl rounded-tr-sm px-4 py-3 max-w-[80%]",
+      "ai_bubble": "bg-transparent text-text_primary px-4 py-3 max-w-[80%]",
+      "code_block": "rounded-md bg-[#0D0D0F] border border-border p-4 font-mono text-sm overflow-x-auto my-4"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "sm": "shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]",
+      "md": "shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_2px_4px_-2px_rgba(0,0,0,0.1)]",
+      "glow": "shadow-[0_0_15px_rgba(59,130,246,0.5)]"
+    },
+    "borders": {
+      "radius": "0.5rem",
+      "width": "1px",
+      "style": "solid"
+    },
+    "effects": {
+      "glass": "backdrop-blur-md bg-background/80 border-b border-border"
+    }
+  },
+  "motion": {
+    "hover": "transition-all duration-200 ease-in-out",
+    "page_transition": "animate-in fade-in slide-in-from-bottom-4 duration-500",
+    "sidebar_toggle": "transition-[width] duration-300 ease-in-out"
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "stroke-width: 1.5, sleek, modern"
+  },
+  "images": {
+    "hero_abstract": "https://images.unsplash.com/photo-1634834300387-8015d9fb7550?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGZ1dHVyaXN0aWMlMjB0ZWNoJTIwZ2VvbWV0cmljfGVufDB8fHx8MTc4Mzc5MzMwNHww&ixlib=rb-4.1.0&q=85",
+    "avatar_1": "https://images.unsplash.com/photo-1758600435798-fad26c19c314?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBkaXZlcnNlJTIwYXZhdGFyJTIwcG9ydHJhaXRzfGVufDB8fHx8MTc4NDEwMTAxOXww&ixlib=rb-4.1.0&q=85",
+    "avatar_2": "https://images.unsplash.com/photo-1760893107446-58b108d419d8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBkaXZlcnNlJTIwYXZhdGFyJTIwcG9ydHJhaXRzfGVufDB8fHx8MTc4NDEwMTAxOXww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Install and use 'lucide-react' for all icons.",
+    "Install Google fonts in index.css: Outfit, Manrope, JetBrains Mono.",
+    "Use Shadcn UI components but heavily customize them. Strip away generic looks. Use the provided color palette.",
+    "Implement a collapsible sidebar layout (260px to 64px) using responsive design. On mobile, it should be a drawer.",
+    "Dark theme is the default and should look phenomenal. True grey bases (#09090B), not pure black.",
+    "Chat interface: Render markdown and syntax-highlighted code blocks using react-markdown and rehype-highlight or similar.",
+    "Pricing page: Use a 3-tier structure with the middle 'Pro' tier highlighted.",
+    "Ensure all interactive elements have data-testid attributes.",
+    "Use 'sonner' for toast notifications.",
+    "Do NOT use transparent backgrounds for dropdowns or sticky headers. Always use solid or glassmorphism (backdrop-blur).",
+    "Avoid generic purple gradients. Stick to the monochromatic + electric blue accent scheme."
+  ],
+  "universal_guidelines": [
+    "You tend to converge toward generic outputs. Create distinctive frontends that surprise and delight.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "Do NOT apply universal transition (e.g., transition: all). Add transitions for specific interactive elements.",
+    "Do NOT center align the app container. Align text to the left naturally.",
+    "Always use modern button styles.",
+    "NEVER use AI assistant Emoji characters like \ud83e\udd16\ud83e\udde0\ud83d\udcad for icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use generous spacing. Cramped designs look cheap."
+  ]
+}
