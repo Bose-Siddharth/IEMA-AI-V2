@@ -116,6 +116,25 @@ export default function AuthPage({ mode }) {
     }
   }, [oauthCfg.apple?.enabled, oauthCfg.apple?.client_id]);
 
+  // Initialize MSAL on mount and clear any stuck interaction state (prevents interaction_in_progress errors)
+  useEffect(() => {
+    if (!oauthCfg.microsoft?.enabled || !oauthCfg.microsoft?.client_id) return;
+    (async () => {
+      try {
+        const msal = getMsal();
+        await msal.initialize();
+        // Complete any pending redirect from a previous session
+        await msal.handleRedirectPromise();
+      } catch (e) {
+        // If init/handleRedirectPromise complains about stuck state, clear it
+        console.warn('[MS] init/handleRedirect error, clearing state:', e?.errorCode);
+        clearMsalInteractionState();
+        msalInstance = null;
+      }
+    })();
+    // eslint-disable-next-line
+  }, [oauthCfg.microsoft?.enabled, oauthCfg.microsoft?.client_id]);
+
   // ---------- MSAL (Microsoft) ----------
   const getMsal = () => {
     if (!msalInstance) {
@@ -125,10 +144,22 @@ export default function AuthPage({ mode }) {
           authority: 'https://login.microsoftonline.com/common',
           redirectUri: window.location.origin,
         },
-        cache: { cacheLocation: 'sessionStorage' },
+        cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
       });
     }
     return msalInstance;
+  };
+
+  // Clear any stuck MSAL interaction state
+  const clearMsalInteractionState = () => {
+    try {
+      const keys = Object.keys(sessionStorage);
+      for (const k of keys) {
+        if (k.startsWith('msal.') || k.includes('interaction.status') || k.includes('msal-interaction')) {
+          sessionStorage.removeItem(k);
+        }
+      }
+    } catch (e) { /* ignore */ }
   };
 
   const exchangeOAuthCode = async (provider, code) => {
@@ -162,13 +193,33 @@ export default function AuthPage({ mode }) {
   const microsoftSignIn = async () => {
     if (!oauthCfg.microsoft?.enabled) { toast.info('Microsoft OAuth not configured'); return; }
     setLoading(true);
-    try {
+    const doPopup = async () => {
       const msal = getMsal();
       await msal.initialize();
-      const result = await msal.loginPopup({
+      // Resolve any pending redirect interaction from a prior attempt
+      try { await msal.handleRedirectPromise(); } catch (e) { /* ignore */ }
+      return msal.loginPopup({
         scopes: ['openid', 'email', 'profile'],
         prompt: 'select_account',
       });
+    };
+    try {
+      let result;
+      try {
+        result = await doPopup();
+      } catch (err) {
+        // Handle stuck interaction from a previous popup that wasn't completed
+        const code = err?.errorCode || '';
+        if (code === 'interaction_in_progress' || (err?.message || '').includes('interaction_in_progress')) {
+          console.warn('[MS] Clearing stuck interaction state, retrying...');
+          clearMsalInteractionState();
+          // Reset instance so it re-initializes cleanly
+          msalInstance = null;
+          result = await doPopup();
+        } else {
+          throw err;
+        }
+      }
       console.log('[MS] loginPopup result:', { hasIdToken: !!result?.idToken, account: result?.account?.username });
       const idToken = result?.idToken;
       if (!idToken) {
@@ -180,7 +231,6 @@ export default function AuthPage({ mode }) {
       handleAuthSuccess(data, 'Microsoft');
     } catch (err) {
       console.error('[MS] sign-in error:', err);
-      // Silent on user cancellation
       const code = err?.errorCode || '';
       const msg = err?.errorMessage || err?.message || '';
       if (code === 'user_cancelled' || msg.includes('user_cancelled') || msg.includes('User cancelled')) return;
