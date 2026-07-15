@@ -53,17 +53,23 @@ export default function AuthPage({ mode }) {
         window.google.accounts.id.initialize({
           client_id: oauthCfg.google.client_id,
           callback: async (resp) => {
-            if (!resp?.credential) return;
+            console.log('[Google] GIS callback:', { hasCredential: !!resp?.credential });
+            if (!resp?.credential) {
+              toast.error('Google did not return a credential');
+              return;
+            }
             setLoading(true);
             try {
               const { data } = await api.post('/auth/google-verify', { credential: resp.credential });
               handleAuthSuccess(data, 'Google');
             } catch (err) {
+              console.error('[Google] verify error:', err);
               toast.error(err.response?.data?.detail || 'Google sign-in failed');
             } finally { setLoading(false); }
           },
           ux_mode: 'popup',
           auto_select: false,
+          use_fedcm_for_prompt: true,
         });
         if (googleBtnRef.current) {
           window.google.accounts.id.renderButton(googleBtnRef.current, {
@@ -73,7 +79,9 @@ export default function AuthPage({ mode }) {
             shape: 'rectangular',
           });
         }
-      } catch (e) { /* GIS init failed silently */ }
+      } catch (e) {
+        console.error('[Google] GIS init failed:', e);
+      }
     };
     const existing = document.querySelector(`script[src="${GSI_SRC}"]`);
     if (existing) init();
@@ -157,17 +165,27 @@ export default function AuthPage({ mode }) {
     try {
       const msal = getMsal();
       await msal.initialize();
-      const result = await msal.loginPopup({ scopes: ['openid', 'email', 'profile'] });
-      const idToken = result.idToken;
-      if (!idToken) throw new Error('No ID token from Microsoft');
+      const result = await msal.loginPopup({
+        scopes: ['openid', 'email', 'profile'],
+        prompt: 'select_account',
+      });
+      console.log('[MS] loginPopup result:', { hasIdToken: !!result?.idToken, account: result?.account?.username });
+      const idToken = result?.idToken;
+      if (!idToken) {
+        console.error('[MS] No idToken in MSAL result:', result);
+        toast.error('Microsoft did not return an ID token. In Azure Portal → App → Authentication → tick "ID tokens" under Implicit grant, save, and try again.');
+        return;
+      }
       const { data } = await api.post('/auth/microsoft-verify', { id_token: idToken });
       handleAuthSuccess(data, 'Microsoft');
     } catch (err) {
-      const msg = err.errorCode === 'user_cancelled' || err.message?.includes('user_cancelled')
-        ? 'Sign-in cancelled'
-        : err.response?.data?.detail || err.message || 'Microsoft sign-in failed';
-      if (msg.toLowerCase().includes('cancel')) return; // silent
-      toast.error(msg);
+      console.error('[MS] sign-in error:', err);
+      // Silent on user cancellation
+      const code = err?.errorCode || '';
+      const msg = err?.errorMessage || err?.message || '';
+      if (code === 'user_cancelled' || msg.includes('user_cancelled') || msg.includes('User cancelled')) return;
+      const detail = err?.response?.data?.detail;
+      toast.error(detail || msg || `Microsoft sign-in failed${code ? ' (' + code + ')' : ''}`);
     } finally { setLoading(false); }
   };
 
@@ -177,11 +195,13 @@ export default function AuthPage({ mode }) {
     setLoading(true);
     try {
       const resp = await window.AppleID.auth.signIn();
+      console.log('[Apple] signIn resp:', { hasIdToken: !!resp?.authorization?.id_token });
       const idToken = resp?.authorization?.id_token;
       if (!idToken) throw new Error('No id_token from Apple');
       const { data } = await api.post('/auth/apple', { id_token: idToken });
       handleAuthSuccess(data, 'Apple');
     } catch (err) {
+      console.error('[Apple] sign-in error:', err);
       if (err?.error === 'popup_closed_by_user' || err?.error === 'user_cancelled_authorize') return;
       toast.error(err?.response?.data?.detail || err?.error || err?.message || 'Apple sign-in failed');
     } finally { setLoading(false); }
