@@ -24,7 +24,7 @@ export default function MsalRedirectHandler() {
         const msal = new PublicClientApplication({
           auth: {
             clientId: cfg.microsoft.client_id,
-            authority: 'https://login.microsoftonline.com/organizations',
+            authority: 'https://login.microsoftonline.com/common',
             redirectUri: window.location.origin,
           },
           cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },

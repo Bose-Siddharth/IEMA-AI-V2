@@ -21,8 +21,8 @@ const GOOGLE_DISCOVERY = {
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
 };
 const MS_DISCOVERY = {
-  authorizationEndpoint: 'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize',
-  tokenEndpoint: 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token',
+  authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+  tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
 };
 
 export default function SocialAuthButtons() {

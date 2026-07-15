@@ -152,10 +152,10 @@ export default function AuthPage({ mode }) {
       msalInstance = new PublicClientApplication({
         auth: {
           clientId: oauthCfg.microsoft.client_id,
-          // 'organizations' = any Microsoft Entra (Azure AD) tenant, no personal accounts.
-          // If the Azure app is single-tenant this still works because we filter tenants at Azure side.
-          // Change to 'common' only after enabling personal accounts in Azure Portal supported-account-types.
-          authority: 'https://login.microsoftonline.com/organizations',
+          // 'common' = any Microsoft Entra tenant + personal Microsoft accounts.
+          // Requires Azure App → Supported account types set to
+          // "Accounts in any org directory AND personal Microsoft accounts".
+          authority: 'https://login.microsoftonline.com/common',
           redirectUri: window.location.origin,
         },
         cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
