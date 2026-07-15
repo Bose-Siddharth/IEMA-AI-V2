@@ -19,9 +19,10 @@ async def upload_image(file: UploadFile = File(...), user: User = Depends(get_cu
         raise HTTPException(500, "Storage not configured")
     if file.content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(400, "Unsupported image type. Use PNG, JPEG, WEBP or GIF.")
-    data = await file.read()
+    # Read up to MAX_SIZE+1 to detect oversize files without buffering entire hostile upload
+    data = await file.read(MAX_SIZE + 1)
     if len(data) > MAX_SIZE:
-        raise HTTPException(400, f"File too large. Max 8MB.")
+        raise HTTPException(400, "File too large. Max 8MB.")
     if len(data) == 0:
         raise HTTPException(400, "Empty file")
     key = await upload_bytes(data, file.filename or "image.png", file.content_type, folder=f"chat/{user.id}")

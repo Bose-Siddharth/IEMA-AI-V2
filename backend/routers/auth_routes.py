@@ -316,6 +316,8 @@ async def forgot_password(req: ForgotPasswordRequest):
     doc = await users_col.find_one({"email": req.email.lower()})
     if doc and doc.get("password_hash"):
         user = User.from_mongo(doc)
+        # Invalidate any prior unused tokens for this user
+        await reset_tokens_col.update_many({"user_id": user.id, "used": False}, {"$set": {"used": True}})
         token = secrets.token_urlsafe(32)
         expires_at = (now_utc() + timedelta(hours=1)).isoformat()
         await reset_tokens_col.insert_one({
