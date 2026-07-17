@@ -233,7 +233,7 @@ export default function Builder() {
               ref={previewRef}
               srcDoc={previewHtml}
               data-testid="builder-preview-iframe"
-              sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
+              sandbox="allow-scripts allow-forms allow-popups allow-modals"
               className="flex-1 w-full border-0 bg-white"
               title="Preview"
             />

@@ -49,6 +49,21 @@ async def upload_bytes(data: bytes, filename: str, content_type: str = "applicat
     return key
 
 
+async def upload_bytes_at_key(key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+    """Upload/overwrite bytes at an exact S3 key. Returns the key."""
+    import asyncio
+
+    def _put():
+        _client().put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+    await asyncio.to_thread(_put)
+    return key
+
+
 def get_signed_url(key: str, expires_in: int = 3600) -> str:
     """Generate a pre-signed URL for downloading a private S3 object."""
     return _client().generate_presigned_url(

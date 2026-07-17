@@ -17,7 +17,7 @@ from services.builder_service import (
     generate_project, refine_project, compose_preview_html, builder_projects_col
 )
 from services.credit_service import has_credits, deduct_credits
-from services.storage_service import upload_bytes, get_signed_url, is_configured
+from services.storage_service import upload_bytes, upload_bytes_at_key, get_signed_url, is_configured
 from services.data_lake import log_event
 
 logger = logging.getLogger(__name__)
@@ -191,7 +191,8 @@ async def share_project(project_id: str, user: User = Depends(get_current_user))
     if not key:
         key = await upload_bytes(html.encode("utf-8"), f"builder-{uuid.uuid4().hex}.html", "text/html", folder=f"builder/{user.id}")
     else:
-        await upload_bytes(html.encode("utf-8"), f"reupload.html", "text/html", folder=f"builder/{user.id}")
+        # Overwrite the existing S3 object so the share URL serves the latest HTML
+        await upload_bytes_at_key(key, html.encode("utf-8"), "text/html")
     # Always store key + refresh signed URL
     await builder_projects_col.update_one(
         {"_id": ObjectId(project_id)},
@@ -221,11 +222,21 @@ async def github_push(project_id: str, req: GithubPushRequest, user: User = Depe
             raise HTTPException(400, "Stored PAT could not be decrypted. Please re-enter.")
 
     if req.save_pat and req.pat:
-        from db import users_col
-        await users_col.update_one(
-            {"_id": ObjectId(user.id)},
-            {"$set": {"github_pat": _encrypt(req.pat)}},
-        )
+        # Validate PAT lightly before persisting so /github/status never lies.
+        async with httpx.AsyncClient(timeout=10) as http_check:
+            r_check = await http_check.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"Bearer {req.pat}", "Accept": "application/vnd.github+json",
+                         "User-Agent": "iema-ai-builder"},
+            )
+            if r_check.status_code == 200:
+                from db import users_col
+                await users_col.update_one(
+                    {"_id": ObjectId(user.id)},
+                    {"$set": {"github_pat": _encrypt(req.pat)}},
+                )
+            else:
+                raise HTTPException(400, f"GitHub rejected PAT ({r_check.status_code}). Not saved.")
 
     if "/" not in req.repo:
         raise HTTPException(400, "repo must be in `owner/repo` form")

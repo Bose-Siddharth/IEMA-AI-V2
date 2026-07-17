@@ -36,15 +36,27 @@ Build IEMA.ai v2 as a complete, production-ready AI Super Platform from scratch 
 - **Iteration 2 tests**: 19/19 phase-2 backend tests + all UI flows passing
 
 ### Phase 3 — P0 Batch (2026-02-17)
-- **Data Lake Middleware**: Global FastAPI middleware `middleware/data_lake_middleware.py` logs every `/api/*` request (method, path, status, latency, user_id, IP, UA) to Mongo `events` collection. Helper `services/data_lake.py` also lets any route log custom event types (studio_summarize, studio_image, career_job_search, career_learning_path). Indexes on (event_type, created_at) and (user_id, created_at).
+- **Data Lake Middleware**: Global FastAPI middleware `middleware/data_lake_middleware.py` logs every `/api/*` request (method, path, status, latency, user_id, IP, UA) to Mongo `events` collection. Helper `services/data_lake.py` also lets any route log custom event types (studio_summarize, studio_image, career_job_search, career_learning_path, builder_create/refine/share/github_push). Indexes on (event_type, created_at) and (user_id, created_at).
 - **AI Studio** (`/studio` web + AI Studio drawer on mobile):
   - `POST /api/studio/summarize` — Claude Haiku 4.5 summarizer, 3 styles (default/eli5/executive), cost 2 credits
   - `POST /api/studio/image` — GPT-Image-1 via `emergentintegrations.OpenAIImageGeneration`, saved to S3 with 7-day signed URL. Cost 10 (low) / 20 (medium) / 40 (high) per image
 - **Career Intelligence** (`/career` web + drawer on mobile):
-  - `POST /api/career/jobs` — Adzuna India (`ADZUNA_COUNTRY=in`) w/ 6-hour Mongo cache; **falls back to curated mock data when ADZUNA keys absent**
+  - `POST /api/career/jobs` — Adzuna India (`ADZUNA_COUNTRY=in`) w/ 6-hour Mongo cache; mock fallback when keys absent. **LIVE Adzuna keys plugged in 2026-02-17.**
   - `POST /api/career/learning-path` — Claude-generated 90-day roadmap, **cached in `career_cache` by (role+skills) hash** — free on repeat calls (major credit saver)
-  - Web pages `pages/Studio.jsx` + `pages/Career.jsx` w/ full test-id coverage; Mobile screens `StudioScreen.js` + `CareerScreen.js`; both added to sidebar/drawer and moved out of Coming Soon.
-- **Iteration 8 tests**: 21/21 backend + 10/10 UI passing. All events verified in data lake. Image gen produces valid S3 URL (HTTP 200). Learning path cache hit produces 0 credits.
+- **Iteration 8 tests**: 21/21 backend + 10/10 UI passing.
+
+### Phase 4 — Code Builder (2026-02-17)
+- **Endpoints** under `/api/builder/*`:
+  - `POST /projects` — LLM generates full multi-file project JSON in a single call (Claude Haiku 4.5). Cost **15 credits**, **cached by (user_id + prompt hash)** for free re-generation.
+  - `GET /projects` + `GET /projects/{id}` — list + full detail
+  - `PATCH /projects/{id}/files` — manual edit, **FREE**
+  - `POST /projects/{id}/refine` — apply an AI edit to the full file set. Cost **8 credits**.
+  - `GET /projects/{id}/preview` — server-composed self-contained HTML (inlines sibling CSS/JS, preserves external CDNs)
+  - `POST /projects/{id}/share` — publishes to S3 with 7-day signed URL; **overwrites existing share_key so it always serves latest HTML**
+  - `POST /projects/{id}/github/push` — pushes every file to `owner/repo` via GitHub Contents API. PAT stored **encrypted (Fernet with JWT_SECRET-derived key)** in `users.github_pat`. **PAT is validated against `GET /user` before persisting**, so `/github/status` never lies. `GET /github/status`, `DELETE /github/disconnect`.
+- **Frontend `/builder`** — 3-pane layout (projects list | file tabs + code editor | live iframe preview via `srcDoc`). Refine input at bottom of editor pane. Share button in preview header returns a copyable public 7-day URL. GitHub push dialog with PAT/repo/commit fields.
+- **Mobile `BuilderScreen.js`** — list + create + refine + open-share-URL (opens in system browser).
+- **Iteration 9 tests**: 25/25 backend + 8/8 UI passing. Adzuna confirmed live (source='adzuna', 100+ real jobs). Post-test fixes: share endpoint now overwrites (was uploading orphan), PAT validated pre-save, iframe sandbox tightened.
 
 ## Architecture
 
@@ -91,12 +103,8 @@ services/
 - **Mobile IAP** — Google Play + Apple App Store receipt validation on backend + Expo `react-native-iap` UI. Requires user-provided Google Play service account JSON + Apple App Store shared secret.
 - **Admin Pricing Excel** — generate `.xlsx` summarizing API costs, credit economics, tier pricing (available for admin download).
 
-### P2 (last if budget allows)
-- **Code Builder** (Emergent-style multi-project) — GitHub connector + live preview. User chose "full" but agreed we only do it if budget still holds after P1.
-
 ### P0 (before app store submission)
 - Paste real `RESEND_API_KEY` from resend.com so verify/reset emails actually send
-- Paste real `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` from developer.adzuna.com to switch career jobs from mock → live India feed
 - Register `iemaai://auth/callback` deep link and switch mobile OAuth to `expo-auth-session`
 - Set up EAS project (`eas init && eas build:configure`) and submit builds
 - Add react-native-razorpay SDK for native Razorpay checkout (currently opens in-app browser fallback)
