@@ -35,6 +35,17 @@ Build IEMA.ai v2 as a complete, production-ready AI Super Platform from scratch 
 - **Mobile app**: Full React Native (Expo SDK 52) app in `/app/mobile/` with bundle ID `com.iemaai.app`. 10 screens: Login, Register, ForgotPassword, Conversations, Chat (streaming + image attach via expo-image-picker), Wallet, Usage, Billing, Notifications, Profile, Settings. Drawer nav with same modules as web. JWT stored in expo-secure-store. Same REST APIs.
 - **Iteration 2 tests**: 19/19 phase-2 backend tests + all UI flows passing
 
+### Phase 3 — P0 Batch (2026-02-17)
+- **Data Lake Middleware**: Global FastAPI middleware `middleware/data_lake_middleware.py` logs every `/api/*` request (method, path, status, latency, user_id, IP, UA) to Mongo `events` collection. Helper `services/data_lake.py` also lets any route log custom event types (studio_summarize, studio_image, career_job_search, career_learning_path). Indexes on (event_type, created_at) and (user_id, created_at).
+- **AI Studio** (`/studio` web + AI Studio drawer on mobile):
+  - `POST /api/studio/summarize` — Claude Haiku 4.5 summarizer, 3 styles (default/eli5/executive), cost 2 credits
+  - `POST /api/studio/image` — GPT-Image-1 via `emergentintegrations.OpenAIImageGeneration`, saved to S3 with 7-day signed URL. Cost 10 (low) / 20 (medium) / 40 (high) per image
+- **Career Intelligence** (`/career` web + drawer on mobile):
+  - `POST /api/career/jobs` — Adzuna India (`ADZUNA_COUNTRY=in`) w/ 6-hour Mongo cache; **falls back to curated mock data when ADZUNA keys absent**
+  - `POST /api/career/learning-path` — Claude-generated 90-day roadmap, **cached in `career_cache` by (role+skills) hash** — free on repeat calls (major credit saver)
+  - Web pages `pages/Studio.jsx` + `pages/Career.jsx` w/ full test-id coverage; Mobile screens `StudioScreen.js` + `CareerScreen.js`; both added to sidebar/drawer and moved out of Coming Soon.
+- **Iteration 8 tests**: 21/21 backend + 10/10 UI passing. All events verified in data lake. Image gen produces valid S3 URL (HTTP 200). Learning path cache hit produces 0 credits.
+
 ## Architecture
 
 ### Backend `/app/backend/`
@@ -75,9 +86,18 @@ services/
 
 ## Backlog / Next Actions
 
+### P1 (next batch — awaiting user go-ahead)
+- **Counseling Module** (Career + Psychology AI chat) — pure LLM, specialized system prompts, first queries the Data Lake for user's own past context.
+- **Mobile IAP** — Google Play + Apple App Store receipt validation on backend + Expo `react-native-iap` UI. Requires user-provided Google Play service account JSON + Apple App Store shared secret.
+- **Admin Pricing Excel** — generate `.xlsx` summarizing API costs, credit economics, tier pricing (available for admin download).
+
+### P2 (last if budget allows)
+- **Code Builder** (Emergent-style multi-project) — GitHub connector + live preview. User chose "full" but agreed we only do it if budget still holds after P1.
+
 ### P0 (before app store submission)
 - Paste real `RESEND_API_KEY` from resend.com so verify/reset emails actually send
-- Register `iemaai://auth/callback` deep link and switch mobile OAuth to `expo-auth-session` (Google + Apple + Microsoft) — see `/app/mobile/README.md`
+- Paste real `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` from developer.adzuna.com to switch career jobs from mock → live India feed
+- Register `iemaai://auth/callback` deep link and switch mobile OAuth to `expo-auth-session`
 - Set up EAS project (`eas init && eas build:configure`) and submit builds
 - Add react-native-razorpay SDK for native Razorpay checkout (currently opens in-app browser fallback)
 
