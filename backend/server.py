@@ -29,6 +29,8 @@ from routers.counseling_routes import router as counseling_router
 from middleware.data_lake_middleware import DataLakeMiddleware
 from services.data_lake import ensure_events_indexes
 from services.knowledge_retriever import ensure_kb_indexes
+from services.pricing_engine import seed_defaults as seed_pricing, ensure_indexes as ensure_pricing_indexes
+from services.knowledge_engine import start as start_kb_engine
 
 app = FastAPI(title="IEMA.ai v2 API", version="2.0.0")
 
@@ -99,6 +101,13 @@ async def startup():
     await ensure_indexes()
     await ensure_events_indexes()
     await ensure_kb_indexes()
+    await seed_pricing()
+    await ensure_pricing_indexes()
+    # Continuous Knowledge Engine — enriches KB from Wikipedia/DDG every 4h
+    try:
+        start_kb_engine(interval_hours=4)
+    except Exception as e:
+        logger.warning(f"Knowledge Engine failed to start: {e}")
     # Idempotently seed builder templates
     try:
         from scripts.seed_templates import seed as seed_templates

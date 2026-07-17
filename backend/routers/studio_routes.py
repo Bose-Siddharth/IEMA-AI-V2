@@ -8,15 +8,12 @@ from pydantic import BaseModel, Field
 from auth import get_current_user
 from models import User
 from services.studio_service import summarize_text, generate_image_bytes
-from services.credit_service import has_credits, deduct_credits
+from services.pricing_engine import spend
 from services.storage_service import upload_bytes, get_signed_url, is_configured
 from services.data_lake import log_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/studio", tags=["studio"])
-
-CREDIT_COST_SUMMARIZE = float(os.environ.get("CREDIT_COST_SUMMARIZE", "2"))
-CREDIT_COST_IMAGE = float(os.environ.get("CREDIT_COST_IMAGE_GEN", "10"))
 
 
 class SummarizeRequest(BaseModel):
@@ -32,26 +29,27 @@ class ImageGenRequest(BaseModel):
 
 @router.post("/summarize")
 async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_current_user)):
-    if not await has_credits(user.id, CREDIT_COST_SUMMARIZE):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient credits")
     try:
         session_id = f"studio-sum-{user.id}-{uuid.uuid4().hex[:8]}"
         result = await summarize_text(session_id, req.text, req.style, user_id=user.id)
         summary = result["response"]
         source = result["source"]
-        credits = 0.0 if source == "kb" else CREDIT_COST_SUMMARIZE
-        balance = None
-        if credits > 0:
-            wallet = await deduct_credits(user.id, credits, "ai_usage", "AI Studio summary")
-            balance = wallet.total
+        billing = await spend(
+            user.id, "studio_summarize",
+            skip_charge=(source == "kb"),
+            description="AI Studio summary",
+        )
         await log_event(
             "studio_summarize",
             user_id=user.id,
             payload={"style": req.style, "input_chars": len(req.text), "output_chars": len(summary),
                      "source": source, "score": result.get("score")},
         )
-        return {"summary": summary, "credits_used": credits, "balance": balance,
+        return {"summary": summary,
+                "credits_used": billing["credits_used"], "balance": billing["balance"],
                 "source": source, "match": result.get("match"), "score": result.get("score")}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Summarize failed")
         raise HTTPException(500, f"Summarize failed: {str(e)[:200]}")
@@ -59,13 +57,7 @@ async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_curre
 
 @router.post("/image")
 async def studio_image(req: ImageGenRequest, user: User = Depends(get_current_user)):
-    cost = CREDIT_COST_IMAGE * req.n
-    if req.quality == "medium":
-        cost *= 2
-    elif req.quality == "high":
-        cost *= 4
-    if not await has_credits(user.id, cost):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Need {int(cost)} credits")
+    service_key = f"studio_image_{req.quality}"
     if not is_configured():
         raise HTTPException(500, "Storage not configured")
     try:
@@ -82,13 +74,21 @@ async def studio_image(req: ImageGenRequest, user: User = Depends(get_current_us
                 "key": key,
                 "url": get_signed_url(key, expires_in=60 * 60 * 24 * 7),
             })
-        wallet = await deduct_credits(user.id, cost, "ai_usage", f"AI Studio image ({req.quality}x{req.n})")
+        # Charge n images at the tier price
+        credits_total = 0.0
+        last_balance = None
+        for _ in range(req.n):
+            b = await spend(user.id, service_key, description=f"AI Studio image ({req.quality})")
+            credits_total += b["credits_used"]
+            last_balance = b["balance"]
         await log_event(
             "studio_image",
             user_id=user.id,
             payload={"prompt": req.prompt[:500], "quality": req.quality, "n": req.n},
         )
-        return {"images": urls, "credits_used": cost, "balance": wallet.total}
+        return {"images": urls, "credits_used": credits_total, "balance": last_balance}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Image gen failed")
         raise HTTPException(500, f"Image gen failed: {str(e)[:200]}")

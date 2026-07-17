@@ -12,8 +12,11 @@ class User(BaseDocument):
     password_hash: Optional[str] = None
     role: Literal["user", "admin"] = "user"
     avatar: Optional[str] = None
-    provider: Literal["email", "google", "apple", "microsoft", "facebook"] = "email"
+    provider: Literal["email", "google", "apple", "microsoft", "facebook", "github", "linkedin"] = "email"
     provider_id: Optional[str] = None
+    linked_accounts: list = Field(default_factory=list)  # [{"provider","provider_id","email","connected_at"}]
+    plan: str = "free"
+    plan_since: Optional[str] = None
     email_verified: bool = False
     theme: Literal["light", "dark", "system"] = "system"
     is_active: bool = True

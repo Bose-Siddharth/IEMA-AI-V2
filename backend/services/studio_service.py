@@ -6,6 +6,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
 from services.knowledge_retriever import retrieve, store
 from services.settings_service import get_setting
+from services.capability_manifest import with_capability
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ async def summarize_text(session_id: str, text: str, style: str = "default", use
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
-        system_message=system_prompt,
+        system_message=with_capability(system_prompt),
     ).with_model("anthropic", "claude-haiku-4-5-20251001")
     resp = await chat.send_message(UserMessage(text=text))
     summary = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))

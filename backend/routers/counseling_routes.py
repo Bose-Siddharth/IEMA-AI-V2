@@ -6,13 +6,11 @@ from pydantic import BaseModel, Field
 from auth import get_current_user
 from models import User
 from services.counseling_service import counsel
-from services.credit_service import has_credits, deduct_credits
+from services.pricing_engine import spend
 from services.data_lake import log_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/counseling", tags=["counseling"])
-
-CREDIT_COST_COUNSEL = float(os.environ.get("CREDIT_COST_COUNSEL", "3"))
 
 MODES = ("career", "psychology", "academic")
 
@@ -26,19 +24,19 @@ class CounselRequest(BaseModel):
 async def counsel_route(req: CounselRequest, user: User = Depends(get_current_user)):
     if req.mode not in MODES:
         raise HTTPException(400, f"mode must be one of {MODES}")
-    if not await has_credits(user.id, CREDIT_COST_COUNSEL):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient credits")
     try:
         result = await counsel(req.mode, req.message, user_id=user.id)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Counsel failed")
         raise HTTPException(500, f"Counsel failed: {str(e)[:200]}")
 
-    credits = 0.0 if result["source"] == "kb" else CREDIT_COST_COUNSEL
-    balance = None
-    if credits > 0:
-        wallet = await deduct_credits(user.id, credits, "ai_usage", f"Counseling ({req.mode})")
-        balance = wallet.total
+    billing = await spend(
+        user.id, f"counseling_{req.mode}",
+        skip_charge=(result["source"] == "kb"),
+        description=f"Counseling ({req.mode})",
+    )
     await log_event(
         f"counseling_{req.mode}", user_id=user.id,
         payload={"chars_in": len(req.message), "chars_out": len(result["response"]),
@@ -50,8 +48,8 @@ async def counsel_route(req: CounselRequest, user: User = Depends(get_current_us
         "source": result["source"],
         "score": result.get("score"),
         "match": result.get("match"),
-        "credits_used": credits,
-        "balance": balance,
+        "credits_used": billing["credits_used"],
+        "balance": billing["balance"],
         "disclaimer": _disclaimer(req.mode),
     }
 

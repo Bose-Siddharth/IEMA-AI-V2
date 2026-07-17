@@ -1,4 +1,5 @@
 """Admin routes."""
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from bson import ObjectId
 from auth import require_admin
@@ -142,3 +143,235 @@ async def update_setting(req: SettingUpdate, admin: User = Depends(require_admin
         payload={"key": req.key, "prev": prev, "new": value},
     )
     return {"ok": True, "key": req.key, "value": value}
+
+
+
+# --- Admin v2: pricing / plans / provider analytics / query log / user details ---
+from services.pricing_engine import (
+    list_pricing, set_price, list_plans, set_plan, usage_col, PROVIDER_COST_USD_PER_CREDIT
+)
+from services.data_lake import events_col
+from db import transactions_col, wallets_col
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+
+class PricingUpdate(BaseModel):
+    credit_cost: float
+    provider: Optional[str] = None
+
+
+class PlanUpdate(BaseModel):
+    name: Optional[str] = None
+    monthly_credits: Optional[float] = None
+    window_hours: Optional[int] = None
+    window_credits: Optional[float] = None
+    price_inr: Optional[float] = None
+    is_free: Optional[bool] = None
+    one_time: Optional[bool] = None
+
+
+@router.get("/pricing")
+async def admin_list_pricing(admin: User = Depends(require_admin)):
+    return {"items": await list_pricing()}
+
+
+@router.patch("/pricing/{service_key}")
+async def admin_update_pricing(service_key: str, req: PricingUpdate, admin: User = Depends(require_admin)):
+    if req.credit_cost < 0 or req.credit_cost > 10000:
+        raise HTTPException(400, "credit_cost out of range")
+    await set_price(service_key, req.credit_cost, req.provider)
+    from services.data_lake import log_event
+    await log_event("admin_pricing_updated", user_id=admin.id,
+                    payload={"service_key": service_key, "credit_cost": req.credit_cost, "provider": req.provider})
+    return {"ok": True}
+
+
+@router.get("/plans")
+async def admin_list_plans(admin: User = Depends(require_admin)):
+    return {"items": await list_plans()}
+
+
+@router.patch("/plans/{plan_id}")
+async def admin_update_plan(plan_id: str, req: PlanUpdate, admin: User = Depends(require_admin)):
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+    await set_plan(plan_id, updates)
+    from services.data_lake import log_event
+    await log_event("admin_plan_updated", user_id=admin.id, payload={"plan_id": plan_id, "updates": updates})
+    return {"ok": True}
+
+
+def _now_utc():
+    return _dt.now(_tz.utc)
+
+
+def _period_start(period: str) -> _dt:
+    n = _now_utc()
+    if period == "24h": return n - _td(hours=24)
+    if period == "7d":  return n - _td(days=7)
+    if period == "30d": return n - _td(days=30)
+    if period == "90d": return n - _td(days=90)
+    return n - _td(days=7)
+
+
+@router.get("/analytics/provider-usage")
+async def analytics_provider_usage(period: str = "7d", admin: User = Depends(require_admin)):
+    since = _period_start(period).isoformat()
+    pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {"$group": {
+            "_id": "$provider",
+            "credits": {"$sum": "$credits"},
+            "cost_usd": {"$sum": "$cost_usd_estimate"},
+            "calls": {"$sum": 1},
+            "kb_hits": {"$sum": {"$cond": ["$kb_hit", 1, 0]}},
+            "tokens_in": {"$sum": "$tokens_in"},
+            "tokens_out": {"$sum": "$tokens_out"},
+        }},
+        {"$sort": {"credits": -1}},
+    ]
+    items = []
+    async for row in usage_col.aggregate(pipeline):
+        row["provider"] = row.pop("_id")
+        items.append(row)
+    return {"period": period, "since": since, "items": items}
+
+
+@router.get("/analytics/timeseries")
+async def analytics_timeseries(period: str = "7d", admin: User = Depends(require_admin)):
+    since = _period_start(period).isoformat()
+    granularity = "hour" if period == "24h" else "day"
+    fmt = "%Y-%m-%dT%H" if granularity == "hour" else "%Y-%m-%d"
+    pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {"$group": {
+            "_id": {"bucket": {"$dateToString": {"format": fmt, "date": {"$toDate": "$created_at"}}}, "provider": "$provider"},
+            "credits": {"$sum": "$credits"},
+            "cost_usd": {"$sum": "$cost_usd_estimate"},
+        }},
+        {"$sort": {"_id.bucket": 1}},
+    ]
+    items = []
+    async for row in usage_col.aggregate(pipeline):
+        items.append({"bucket": row["_id"]["bucket"], "provider": row["_id"]["provider"],
+                      "credits": row["credits"], "cost_usd": row["cost_usd"]})
+    return {"period": period, "granularity": granularity, "items": items}
+
+
+@router.get("/analytics/finance")
+async def analytics_finance(period: str = "30d", admin: User = Depends(require_admin)):
+    since = _period_start(period).isoformat()
+    # Expense: sum cost_usd from ai_usage
+    expense_pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {"$group": {"_id": None, "cost_usd": {"$sum": "$cost_usd_estimate"}, "credits": {"$sum": "$credits"}}},
+    ]
+    exp_row = None
+    async for r in usage_col.aggregate(expense_pipeline):
+        exp_row = r
+    expense_usd = float((exp_row or {}).get("cost_usd", 0) or 0)
+    # Income: sum positive purchase-kind transactions
+    income_pipeline = [
+        {"$match": {"created_at": {"$gte": since}, "kind": {"$in": ["purchase", "topup", "subscription"]}, "amount": {"$gt": 0}}},
+        {"$group": {"_id": None, "credits_added": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+    ]
+    inc_row = None
+    async for r in transactions_col.aggregate(income_pipeline):
+        inc_row = r
+    credits_added = float((inc_row or {}).get("credits_added", 0) or 0)
+    # ~ estimate income at ₹0.6/credit avg (admin can override later)
+    inr_per_credit = 0.6
+    income_inr = credits_added * inr_per_credit
+    income_usd = income_inr / 84.0
+    margin_usd = income_usd - expense_usd
+    return {
+        "period": period, "since": since,
+        "expense_usd": round(expense_usd, 4),
+        "income_credits": credits_added,
+        "income_inr_estimate": round(income_inr, 2),
+        "income_usd_estimate": round(income_usd, 2),
+        "margin_usd_estimate": round(margin_usd, 2),
+    }
+
+
+@router.get("/queries")
+async def query_log(
+    q: Optional[str] = None,
+    kind: Optional[str] = None,
+    user_id: Optional[str] = None,
+    limit: int = 50, skip: int = 0,
+    admin: User = Depends(require_admin),
+):
+    filt = {"event_type": {"$regex": r"^(counseling_|studio_|career_|builder_|chat_)"}}
+    if kind: filt["event_type"] = kind
+    if user_id: filt["user_id"] = user_id
+    if q: filt["$or"] = [
+        {"payload.prompt": {"$regex": q, "$options": "i"}},
+        {"payload.message": {"$regex": q, "$options": "i"}},
+        {"payload.q": {"$regex": q, "$options": "i"}},
+    ]
+    cursor = events_col.find(filt).sort("created_at", -1).skip(skip).limit(min(limit, 200))
+    items = []
+    async for d in cursor:
+        d["id"] = str(d.pop("_id"))
+        items.append(d)
+    total = await events_col.count_documents(filt)
+    return {"items": items, "total": total, "limit": limit, "skip": skip}
+
+
+@router.get("/users/{user_id}/details")
+async def user_details(user_id: str, admin: User = Depends(require_admin)):
+    try:
+        u = await users_col.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise HTTPException(400, "Invalid user id")
+    if not u:
+        raise HTTPException(404, "User not found")
+    u["id"] = str(u.pop("_id"))
+    u.pop("password_hash", None)
+    u.pop("github_pat", None)
+    wallet = await wallets_col.find_one({"user_id": user_id}) or {}
+    wallet.pop("_id", None)
+    # Last 30d aggregate spend
+    since = (_now_utc() - _td(days=30)).isoformat()
+    spend_pipeline = [
+        {"$match": {"user_id": user_id, "created_at": {"$gte": since}}},
+        {"$group": {"_id": "$service_key", "credits": {"$sum": "$credits"}, "calls": {"$sum": 1}}},
+        {"$sort": {"credits": -1}},
+    ]
+    top_services = []
+    async for row in usage_col.aggregate(spend_pipeline):
+        row["service_key"] = row.pop("_id")
+        top_services.append(row)
+    # Recent queries
+    recent = []
+    async for d in events_col.find(
+        {"user_id": user_id, "event_type": {"$regex": r"^(counseling_|studio_|career_|builder_|chat_)"}}
+    ).sort("created_at", -1).limit(20):
+        d["id"] = str(d.pop("_id"))
+        recent.append(d)
+    return {"user": u, "wallet": wallet, "top_services": top_services, "recent_queries": recent}
+
+
+# --- Knowledge Engine controls ---
+from services.knowledge_engine import status as kb_engine_status, enrich_once as kb_engine_run
+
+
+@router.get("/kb/engine/status")
+async def get_kb_engine_status(admin: User = Depends(require_admin)):
+    return await kb_engine_status()
+
+
+@router.post("/kb/engine/run")
+async def trigger_kb_engine(admin: User = Depends(require_admin)):
+    """Manually kick off one enrichment pass."""
+    import asyncio
+    async def _bg():
+        try:
+            await kb_engine_run(max_prompts=15)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception(f"KB engine run failed: {e}")
+    asyncio.create_task(_bg())
+    return {"ok": True, "message": "Knowledge engine pass started in background"}

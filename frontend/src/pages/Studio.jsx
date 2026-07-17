@@ -52,7 +52,7 @@ function Summarize() {
       const { data } = await api.post('/studio/summarize', { text, style });
       setResult(data.summary);
       dispatch(setWalletBalance(data.balance));
-      toast.success(`Used ${data.credits_used} credits`);
+      toast.success('Done');
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed');
     } finally { setLoading(false); }
@@ -79,7 +79,7 @@ function Summarize() {
           className="min-h-[280px] resize-none"
         />
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{text.length} chars · 2 credits</span>
+          <span>{text.length} chars</span>
           <Button data-testid="studio-summarize-btn" onClick={run} disabled={loading || text.trim().length < 20}>
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
             Summarize
@@ -118,7 +118,7 @@ function ImageGen() {
       const { data } = await api.post('/studio/image', { prompt, quality, n });
       setImages(data.images);
       dispatch(setWalletBalance(data.balance));
-      toast.success(`Used ${data.credits_used} credits`);
+      toast.success('Done');
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed');
     } finally { setLoading(false); }
@@ -148,7 +148,7 @@ function ImageGen() {
               {[1, 2, 3, 4].map(x => <SelectItem key={x} value={String(x)}>{x} image{x > 1 ? 's' : ''}</SelectItem>)}
             </SelectContent>
           </Select>
-          <div className="text-xs text-muted-foreground flex-1">Cost: {baseCost} credits</div>
+          <div className="text-xs text-muted-foreground flex-1"></div>
           <Button data-testid="studio-image-btn" onClick={run} disabled={loading || prompt.trim().length < 3}>
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ImageIcon className="h-4 w-4 mr-2" />}
             Generate

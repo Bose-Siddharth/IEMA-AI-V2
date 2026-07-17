@@ -1,0 +1,43 @@
+{
+  "summary": "Batch B (pricing engine, plans, analytics, queries, user details, wallet window, KB engine, multi-social linking, capability manifest, rate-limit 429, spend() regression, admin dashboard v2, usage window widget, credit-hint removal) — all critical checks pass. Backend: 24/24 pytest cases in test_batch_b.py pass; additional rate-limit script confirms proper 429 body {message:'Usage window exhausted', resets_at, window_hours, used, cap, resets_in_ms} after fresh free-plan user hits 12+12>15 credits on counseling_academic. Pricing patched to 12→verified→reset to 3. Frontend: usage-window-widget renders on /usage with progress bar (7/15 used · resets in 3h 43m); all 5 new admin tabs (finance, providers, queries, pricing, plans) render their panels; pricing edit (studio_summarize=3) persists across reload then reset to 2; plan edit (pro monthly=550) persists across reload then reset to 500. Studio/Builder/Counseling pages contain NO credit-cost hints (no 'X credits per', no 'Refine with AI (8 credits)', no numeric credit mentions in counseling responses). Builder empty state text 'Every prompt is cached — repeat requests are free.' present. Chat capability-manifest test confirms /chat/stream recommends 'AI Studio / /studio' when asked to generate an image AND does NOT mention DALL-E, Midjourney, ChatGPT. One critical backend bug FIXED by testing agent: admin_routes.py `/admin/users/{user_id}/details` had the Knowledge Engine section spliced in mid-function, orphaning the return statement (making endpoint return null body). Return statement re-attached, verified 200 with correct payload.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/wallet", "issue": "Trailing-slash redirect (307) if client hits /api/wallet vs /api/wallet/ inconsistently — cosmetic."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Usage page charts", "issues": ["Recharts logs 'width(-1) and height(-1)' warnings during first paint before container measures — visible in console but does not break rendering."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_batch_b.py",
+    "/app/backend/tests/test_batch_b_ratelimit.py",
+    "/app/test_reports/pytest/pytest_batch_b.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin_routes.py L378 (before fix): the `# --- Knowledge Engine controls ---` block was inserted INSIDE the user_details function body — the two new @router endpoints were declared mid-function and the original `return {user, wallet, top_services, recent_queries}` became dead code inside trigger_kb_engine. This meant `/admin/users/{user_id}/details` returned 200 with null body. FIXED in this iteration. Recommend main agent adds a lint rule or basic assert-not-none pytest for this endpoint going forward.",
+    "services/pricing_engine.py L134: `get_user_plan` looks up plan_id from `users.plan` — but user documents seeded via /auth/register do NOT set `plan`; the fallback 'free' works but users are never explicitly assigned. Consider auto-assigning `plan='free'` on register so admin/users list shows the plan column populated.",
+    "services/pricing_engine.py L204: 429 detail uses `window['window_hours']` — verified populated, but the HTTPException status.status_code shadowing on line 213 (`status_code=status.HTTP_429_TOO_MANY_REQUESTS`) works only because `status` was imported from fastapi in this module (line 13). No bug, but shadowing local `status` in _window_status makes the code confusing.",
+    "routers/wallet_routes.py L40: `/wallet/window` calls `check_window(user.id, 0)` which triggers window reset if expired. Side-effect on a GET is unusual — consider making window reset lazy-idempotent (already is) but documenting the behaviour.",
+    "services/pricing_engine.py L44: DEFAULT_PLANS free plan sets `window_credits: 15` — matches spec. However `monthly_credits: 25` conflicts with the .env WELCOME_CREDITS=50 (spec #7). New users get 50 welcome credits (seeded by credit_service, not plan), so free plan's 25 monthly is effectively unused for free tier because `is_free=True` prevents plan re-issue. Recommend documenting this in an admin runbook.",
+    "Frontend Studio.jsx L112: `baseCost = 10 * n * (quality === 'high' ? 4 : ...)` is dead code — variable is calculated but never rendered. Remove to avoid future confusion.",
+    "AdminPanels.jsx L299: pricing/plan Input has type='number' but no min/max validation on frontend — user can enter negative and only see backend 400 as toast. Add client-side min=0, max=10000 on pricing inputs and min=1 on window_hours."
+  ],
+  "updated_files": [
+    "/app/backend/routers/admin_routes.py (FIXED: moved user_details return statement out of trigger_kb_engine dead-code position; separated the Knowledge Engine routes as siblings)",
+    "/app/backend/tests/test_batch_b.py (new — 24 tests covering pricing, plans, analytics, queries, user details, wallet window, KB engine, linked accounts, capability manifest, spend regression)",
+    "/app/backend/tests/test_batch_b_ratelimit.py (new — isolated 429 rate-limit scenario; pricing auto-reset)"
+  ],
+  "success_rate": {"backend": "100% (24/24 pytest + 1/1 rate-limit script)", "frontend": "100% (usage widget + 5 new admin tabs + pricing/plan persist + 3 credit-hint-removal pages)"},
+  "test_credentials": "Admin siddharth.bose@iemlabs.com / Admin@12345; disposable non-admin `testuser_batchB_<hex>@example.com` / Test@1234 created via /auth/register.",
+  "seed_data_creation": "Pytest: 2 disposable users (batchB session + rate-limit run). KB entries added: 1 counseling_academic entry ('Study plan for GATE exam prep' from fresh user). Pricing counseling_academic set to 12 then reset to 3. Pricing studio_summarize set to 4→2→3 (UI)→2. Plan pro set monthly_credits 600 window_hours 6 then reset to 500/5. UI also set pro monthly 550→500. Admin credit spend during full run: ~14 credits (1 chat/stream + 1 studio/summarize). Admin wallet 124 remaining after tests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Batch B is fully working. One critical bug (user_details missing return) was found and fixed in-place by this iteration. All new admin tabs render their panels; all data-testids listed in the spec (admin-tab-{finance,providers,queries,pricing,plans}, admin-pricing-{svc}, admin-pricing-save-{svc}, admin-plan-{plan}-{monthly,hours,cap,price}, admin-plan-save-{plan}, admin-queries-search, admin-queries-search-btn, admin-providers-panel/table, admin-finance-panel, usage-window-widget) exist and behave correctly. Rate limit returns proper 429 body. Free-plan window is cap=15, hours=4. Login response nested at body.tokens.access_token. Counseling endpoint is POST /api/counseling (NOT /counseling/message). Chat endpoint is POST /api/chat/stream (SSE) with body {content: ..., attachments: ...} — NOT {message:}. If re-running, keep the test file running serial (LoadScopeScheduling from pytest.ini) — same admin user is shared.",
+  "rca of the issue": "The /admin/users/{user_id}/details endpoint returned 200 with null body because the Knowledge Engine section (line 356-376) was inserted INSIDE the user_details function body (between the `recent.append(d)` loop and the final `return`). The final `return {user, wallet, top_services, recent_queries}` (originally on line 378) got orphaned as unreachable code AFTER the trigger_kb_engine `return {ok:true, message:...}` — Python treats it as dead code inside trigger_kb_engine. Fix: (1) Restored the return statement inside user_details right after the recent.append loop. (2) Removed the dead-code return at the bottom of trigger_kb_engine. Verified with test_admin_user_details → 200 with all four keys present."
+}

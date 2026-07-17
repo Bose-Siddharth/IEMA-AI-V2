@@ -34,3 +34,13 @@ async def list_transactions(user: User = Depends(get_current_user), limit: int =
         doc["id"] = str(doc.pop("_id"))
         txs.append(doc)
     return {"items": txs, "count": len(txs)}
+
+
+
+@router.get("/window")
+async def get_window(user: User = Depends(get_current_user)):
+    """Current rolling usage window + plan info (drives usage bar UI)."""
+    from services.pricing_engine import check_window, get_user_plan
+    plan = await get_user_plan(user.id)
+    w = await check_window(user.id, 0)
+    return {"plan": plan, "window": w}

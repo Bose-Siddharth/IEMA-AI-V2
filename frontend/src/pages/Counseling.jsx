@@ -86,7 +86,7 @@ export default function Counseling() {
               <activeMode.Icon className="h-8 w-8 mx-auto text-primary mb-3" />
               <div className="text-lg font-medium">Start a private conversation</div>
               <div className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                Every question is retrieved from IEMA's data lake first. Fresh AI answers cost 3 credits.
+                Every question is retrieved from IEMA's data lake first for an instant, private answer.
               </div>
             </div>
           )}
@@ -106,11 +106,11 @@ export default function Counseling() {
                     <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
                       {m.source === 'kb' ? (
                         <span className="flex items-center gap-1 text-emerald-500">
-                          <Database className="h-3 w-3" /> From Data Lake · {m.score ? `sim ${m.score}` : m.match} · 0 credits
+                          <Database className="h-3 w-3" /> From Data Lake
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-primary">
-                          <Sparkles className="h-3 w-3" /> Fresh AI · {m.credits} credits
+                          <Sparkles className="h-3 w-3" /> Fresh
                         </span>
                       )}
                     </div>

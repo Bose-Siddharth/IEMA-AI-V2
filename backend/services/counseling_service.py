@@ -11,6 +11,7 @@ from typing import Optional
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from services.knowledge_retriever import retrieve, store as kb_store
 from services.settings_service import get_setting
+from services.capability_manifest import with_capability
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ async def counsel(mode: str, message: str, user_id: Optional[str] = None) -> dic
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"counsel-{mode}-{(user_id or 'anon')[:12]}",
-        system_message=SYSTEM_PROMPTS[mode],
+        system_message=with_capability(SYSTEM_PROMPTS[mode]),
     ).with_model("anthropic", COUNSEL_MODEL)
     resp = await chat.send_message(UserMessage(text=message))
     content = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))

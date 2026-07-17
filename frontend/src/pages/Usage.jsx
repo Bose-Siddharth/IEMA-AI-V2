@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { BarChart3, Zap, TrendingUp, Activity } from 'lucide-react';
+import { BarChart3, Zap, TrendingUp, Activity, Clock, Timer } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 const PERIODS = [
   { key: 'today', label: 'Today' },
@@ -16,18 +17,21 @@ const PERIODS = [
 export default function Usage() {
   const [summary, setSummary] = useState(null);
   const [timeline, setTimeline] = useState([]);
+  const [window, setWindow] = useState(null);
   const [period, setPeriod] = useState('30d');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [s, t] = await Promise.all([
+        const [s, t, w] = await Promise.all([
           api.get('/usage/summary'),
           api.get(`/usage/timeline?period=${period}`),
+          api.get('/wallet/window'),
         ]);
         setSummary(s.data);
         setTimeline(t.data.items);
+        setWindow(w.data);
       } finally { setLoading(false); }
     })();
   }, [period]);
@@ -36,10 +40,12 @@ export default function Usage() {
     <div className="p-6 md:p-8 max-w-7xl">
       <div className="mb-8">
         <h1 className="font-display text-3xl font-medium tracking-tight">Usage Analytics</h1>
-        <p className="text-muted-foreground mt-1">Track credits, requests and model spend.</p>
+        <p className="text-muted-foreground mt-1">Track credits and requests. No pricing — just your activity.</p>
       </div>
 
-      <Tabs value={period} onValueChange={setPeriod} className="mb-6">
+      {window && <UsageWindow window={window.window} plan={window.plan} />}
+
+      <Tabs value={period} onValueChange={setPeriod} className="mb-6 mt-6">
         <TabsList>
           {PERIODS.map((p) => <TabsTrigger key={p.key} value={p.key}>{p.label}</TabsTrigger>)}
         </TabsList>
@@ -121,6 +127,47 @@ function InfoRow({ label, value }) {
     <div className="flex items-center justify-between text-sm py-1.5 border-b border-border/50 last:border-0">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
+function UsageWindow({ window, plan }) {
+  const used = window?.used || 0;
+  const cap = window?.cap || 1;
+  const pct = Math.min(100, Math.round((used / cap) * 100));
+  const [remaining, setRemaining] = useState('');
+  useEffect(() => {
+    if (!window?.resets_at) return;
+    const tick = () => {
+      const ms = Math.max(0, new Date(window.resets_at) - new Date());
+      const h = Math.floor(ms / 3.6e6);
+      const m = Math.floor((ms % 3.6e6) / 60000);
+      setRemaining(`${h}h ${m}m`);
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, [window]);
+  const critical = pct >= 90;
+  return (
+    <div className="rounded-xl border border-border bg-card p-5" data-testid="usage-window-widget">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Timer className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">Current window</span>
+          <span className="text-xs text-muted-foreground uppercase tracking-wider">· {plan?.name || plan?.plan_id}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3" /> resets in <span className="text-foreground font-medium">{remaining || '—'}</span>
+        </div>
+      </div>
+      <div className="w-full h-2 rounded-full bg-[hsl(var(--surface))] overflow-hidden">
+        <div className={cn('h-full rounded-full transition-all duration-500', critical ? 'bg-red-500' : 'bg-primary')} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="mt-2 flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{Math.floor(used)} / {Math.floor(cap)} used</span>
+        <span className={cn('text-muted-foreground', critical && 'text-red-500 font-medium')}>{Math.max(0, Math.floor(cap - used))} remaining</span>
+      </div>
     </div>
   );
 }

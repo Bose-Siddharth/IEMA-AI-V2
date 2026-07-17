@@ -12,6 +12,7 @@ from models import (
     SendMessageRequest, RenameConversationRequest, Conversation, Message, User
 )
 from services.credit_service import has_credits, deduct_credits
+from services.pricing_engine import spend, resolve_cost
 from services.ai_service import stream_ai_response
 
 logger = logging.getLogger(__name__)
@@ -90,11 +91,13 @@ async def delete_conversation(conv_id: str, user: User = Depends(get_current_use
 @router.post("/stream")
 async def stream_message(req: SendMessageRequest, user: User = Depends(get_current_user)):
     """SSE streaming endpoint for chat messages."""
-    # Check credits
-    total_cost = CREDIT_COST_MESSAGE
+    # Resolve cost dynamically via pricing engine
+    msg_price = await resolve_cost("chat_message")
+    img_price = await resolve_cost("chat_message_image")
+    image_count = 0
     if req.attachments:
         image_count = sum(1 for a in req.attachments if (a.get("content_type") or "").startswith("image/"))
-        total_cost += image_count * float(os.environ.get("CREDIT_COST_IMAGE_INPUT", "3"))
+    total_cost = msg_price["credit_cost"] + image_count * img_price["credit_cost"]
     if not await has_credits(user.id, total_cost):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient credits. Please recharge your wallet.")
 
@@ -163,8 +166,17 @@ async def stream_message(req: SendMessageRequest, user: User = Depends(get_curre
                     credits_used=total_cost,
                 )
                 asst_res = await messages_col.insert_one(asst_msg.to_mongo())
-                # Deduct credits
-                await deduct_credits(user.id, total_cost, "ai_usage", f"Chat message ({model})", conv_id)
+                # Central spend (window + wallet + provider tracking)
+                try:
+                    await spend(user.id, "chat_message", provider_override=provider,
+                                description=f"Chat message ({model})", ref_id=conv_id)
+                    if image_count:
+                        for _ in range(image_count):
+                            await spend(user.id, "chat_message_image", provider_override=provider,
+                                        description=f"Chat image ({model})", ref_id=conv_id)
+                except HTTPException:
+                    # rate-limit — already deducted via primary msg; ignore silently for chat
+                    pass
                 # Update conversation
                 await conversations_col.update_one(
                     {"_id": ObjectId(conv_id)},

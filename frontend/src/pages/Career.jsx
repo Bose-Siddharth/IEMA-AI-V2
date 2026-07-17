@@ -104,7 +104,7 @@ function LearningPath() {
       const { data } = await api.post('/career/learning-path', { role, skills: skillsArr });
       setResult(data.roadmap_markdown);
       setMeta({ cached: data.cached, credits: data.credits_used });
-      toast.success(data.cached ? 'Loaded from cache (free)' : `Used ${data.credits_used} credits`);
+      toast.success(data.cached ? 'Loaded from data lake' : 'Generated');
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
     finally { setLoading(false); }
   };
@@ -115,7 +115,7 @@ function LearningPath() {
         <Input data-testid="career-path-role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="Target role (e.g. Backend Python Engineer)" />
         <Input data-testid="career-path-skills" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="Current skills (comma-separated)" />
         <div className="flex items-center justify-between">
-          <div className="text-xs text-muted-foreground">5 credits (cached forever after first generation)</div>
+          <div className="text-xs text-muted-foreground">Instant results (cached after first generation)</div>
           <Button data-testid="career-path-btn" onClick={run} disabled={loading || !role.trim()}>
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
             Generate Path
@@ -124,7 +124,7 @@ function LearningPath() {
       </div>
       {meta && (
         <div className="text-xs text-muted-foreground">
-          {meta.cached ? '✓ Cached (free)' : `Fresh generation · ${meta.credits} credits`}
+          {meta.cached ? 'From data lake' : 'Fresh generation'}
         </div>
       )}
       {result && (

@@ -5,6 +5,7 @@ import logging
 from typing import AsyncGenerator, List, Dict, Optional
 import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone, ImageContent
+from services.capability_manifest import with_capability
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def _build_chat(session_id: str, provider: str, model: str) -> LlmChat:
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
-        system_message=SYSTEM_PROMPT,
+        system_message=with_capability(SYSTEM_PROMPT),
     ).with_model(provider, model)
     return chat
 

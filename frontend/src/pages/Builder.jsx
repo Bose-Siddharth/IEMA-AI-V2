@@ -61,7 +61,7 @@ export default function Builder() {
       await api.patch(`/builder/projects/${active.id}/files`, { files: active.files });
       const p = await api.get(`/builder/projects/${active.id}/preview`);
       setPreviewHtml(p.data.html || '');
-      toast.success('Saved (0 credits)');
+      toast.success('Saved');
     } catch (e) { toast.error(e.response?.data?.detail || 'Save failed'); }
     finally { setSaving(false); }
   };
@@ -81,7 +81,7 @@ export default function Builder() {
       const updated = { ...active, files: data.files };
       setActive(updated); setActiveFileIdx(0);
       dispatch(setWalletBalance(data.balance));
-      toast.success(`Refined (${data.credits_used} credits)`);
+      toast.success('Refined');
       const p = await api.get(`/builder/projects/${active.id}/preview`);
       setPreviewHtml(p.data.html || '');
       setRefineText('');
@@ -151,7 +151,7 @@ export default function Builder() {
             <div className="mt-6 flex flex-wrap gap-2 justify-center">
               <Button onClick={() => setShowCreate(true)} className="gap-2"><Plus className="h-4 w-4" /> New Project</Button>
             </div>
-            <div className="mt-6 text-xs text-muted-foreground">15 credits per project · 8 to refine · edits & share free</div>
+            <div className="mt-6 text-xs text-muted-foreground">Every prompt is cached — repeat requests are free.</div>
           </div>
         </div>
       ) : (
@@ -162,8 +162,7 @@ export default function Builder() {
               <span className="font-medium truncate flex-1 text-sm">{active.name}</span>
               <Button size="sm" variant="ghost" onClick={saveFiles} disabled={saving} data-testid="builder-save-btn">
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save'}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowGithub(true)} className="gap-1.5" data-testid="builder-github-btn">
+              </Button><Button size="sm" variant="outline" onClick={() => setShowGithub(true)} className="gap-1.5" data-testid="builder-github-btn">
                 <Github className="h-3.5 w-3.5" /> Push
               </Button>
             </div>
@@ -186,7 +185,7 @@ export default function Builder() {
             <div className="border-t border-border p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <Wand2 className="h-4 w-4 text-primary flex-shrink-0" />
-                <span className="text-xs font-medium">Refine with AI (8 credits)</span>
+                <span className="text-xs font-medium">Refine with AI</span>
               </div>
               <div className="flex gap-2">
                 <Input
@@ -256,7 +255,7 @@ function CreateDialog({ open, onOpenChange, onCreated, dispatch }) {
     try {
       const { data } = await api.post('/builder/projects', { prompt });
       if (data.balance != null) dispatch(setWalletBalance(data.balance));
-      toast.success(data.cached ? 'Loaded from cache (free)' : `Created (${data.credits_used} credits)`);
+      toast.success(data.cached ? 'Loaded from data lake' : 'Project created');
       onOpenChange(false); setPrompt('');
       onCreated(data.project);
     } catch (e) { toast.error(e.response?.data?.detail || 'Create failed'); }
@@ -267,7 +266,7 @@ function CreateDialog({ open, onOpenChange, onCreated, dispatch }) {
       <DialogContent data-testid="builder-create-dialog">
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
-          <DialogDescription>Describe what to build. 15 credits per project (0 on cache hit).</DialogDescription>
+          <DialogDescription>Describe what to build. Repeat prompts are free.</DialogDescription>
         </DialogHeader>
         <Textarea
           data-testid="builder-create-prompt"

@@ -5,8 +5,10 @@ import httpx
 import jwt as pyjwt
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from bson import ObjectId
+from pydantic import BaseModel
 from models import (
     RegisterRequest, LoginRequest, RefreshRequest, TokenPair, UserPublic,
     OAuthCodeRequest, GoogleIdTokenRequest, IdTokenRequest, UserUpdateRequest, User,
@@ -170,6 +172,99 @@ async def delete_me(user: User = Depends(get_current_user)):
     await users_col.delete_one({"_id": ObjectId(user.id)})
     await sessions_col.delete_many({"user_id": user.id})
     return {"ok": True, "message": "Account permanently deleted"}
+
+
+# ---- Multi-account linking -------------------------------------------------
+LINK_ALLOWED_PROVIDERS = {"google", "microsoft", "apple", "github", "linkedin"}
+
+
+@router.get("/me/linked")
+async def list_linked(user: User = Depends(get_current_user)):
+    doc = await users_col.find_one({"_id": ObjectId(user.id)}, {"linked_accounts": 1, "provider": 1, "provider_id": 1, "email": 1})
+    linked = list((doc or {}).get("linked_accounts", []))
+    # Ensure primary provider is represented
+    if (doc or {}).get("provider") and doc.get("provider") != "email":
+        primary_present = any(l.get("provider") == doc["provider"] for l in linked)
+        if not primary_present:
+            linked.insert(0, {
+                "provider": doc["provider"],
+                "provider_id": doc.get("provider_id"),
+                "email": doc.get("email"),
+                "primary": True,
+            })
+    return {"linked": linked, "primary_email": (doc or {}).get("email")}
+
+
+class LinkAccountRequest(BaseModel):
+    provider: str
+    provider_id: str
+    email: Optional[str] = None
+
+
+@router.post("/me/link")
+async def link_account(req: LinkAccountRequest, user: User = Depends(get_current_user)):
+    if req.provider not in LINK_ALLOWED_PROVIDERS:
+        raise HTTPException(400, f"Unsupported provider `{req.provider}`")
+    # Reject if already claimed by another user
+    other = await users_col.find_one({
+        "$or": [
+            {"linked_accounts": {"$elemMatch": {"provider": req.provider, "provider_id": req.provider_id}}},
+            {"provider": req.provider, "provider_id": req.provider_id, "_id": {"$ne": ObjectId(user.id)}},
+        ]
+    })
+    if other and str(other["_id"]) != user.id:
+        raise HTTPException(409, "This account is already linked to another IEMA user")
+
+    entry = {
+        "provider": req.provider,
+        "provider_id": req.provider_id,
+        "email": (req.email or "").lower() or None,
+        "connected_at": now_iso(),
+    }
+    # Upsert into array — replace existing (same provider+id)
+    await users_col.update_one(
+        {"_id": ObjectId(user.id)},
+        {"$pull": {"linked_accounts": {"provider": req.provider, "provider_id": req.provider_id}}},
+    )
+    await users_col.update_one(
+        {"_id": ObjectId(user.id)},
+        {"$push": {"linked_accounts": entry}, "$set": {"updated_at": now_iso()}},
+    )
+    return {"ok": True, "linked": entry}
+
+
+@router.delete("/me/link/{provider}")
+async def unlink_account(provider: str, user: User = Depends(get_current_user)):
+    if provider not in LINK_ALLOWED_PROVIDERS:
+        raise HTTPException(400, "Unsupported provider")
+    doc = await users_col.find_one({"_id": ObjectId(user.id)}, {"provider": 1, "password_hash": 1, "linked_accounts": 1})
+    if not doc:
+        raise HTTPException(404, "User not found")
+    is_primary = (doc.get("provider") == provider)
+    linked = doc.get("linked_accounts") or []
+    remaining = [l for l in linked if l.get("provider") != provider]
+    remaining_providers = {l.get("provider") for l in remaining}
+    if is_primary:
+        remaining_providers.add(doc.get("provider"))  # primary still counts unless we're unlinking it
+        remaining_providers.discard(provider)
+    has_password = bool(doc.get("password_hash"))
+    if not has_password and not remaining_providers:
+        raise HTTPException(400, "Set a password before disconnecting your only sign-in method")
+
+    update = {"$set": {"linked_accounts": remaining, "updated_at": now_iso()}}
+    if is_primary:
+        # Promote another linked provider (or fall back to email)
+        promote = next(iter(remaining), None)
+        if promote:
+            update["$set"]["provider"] = promote["provider"]
+            update["$set"]["provider_id"] = promote.get("provider_id")
+        else:
+            update["$set"]["provider"] = "email"
+            update["$set"]["provider_id"] = None
+    await users_col.update_one({"_id": ObjectId(user.id)}, update)
+    return {"ok": True}
+
+
 
 
 @router.post("/google-verify", response_model=dict)

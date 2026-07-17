@@ -13,6 +13,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from db import db, now_iso
 from services.knowledge_retriever import retrieve, store as kb_store
 from services.settings_service import get_setting
+from services.capability_manifest import with_capability
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ async def get_or_generate_learning_path(role: str, skills: List[str], user_id: O
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"career-lp-{key[:12]}",
-        system_message="You are a senior career coach for the Indian tech job market.",
+        system_message=with_capability("You are a senior career coach for the Indian tech job market."),
     ).with_model("anthropic", "claude-haiku-4-5-20251001")
     resp = await chat.send_message(UserMessage(text=prompt))
     content = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))
