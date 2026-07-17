@@ -232,17 +232,16 @@ export default function AuthPage({ mode }) {
       const msal = getMsal();
       await msal.initialize();
       try { await msal.handleRedirectPromise(); } catch { /* ignore */ }
-      // Full-page redirect flow — more reliable than popup, avoids the timed_out issue
-      // where the popup's hash fragment gets consumed by React Router before MSAL polls it.
-      // Stash a marker so we know we initiated Microsoft login when we come back.
-      try { sessionStorage.setItem('iema_msal_pending', '1'); } catch { /* ignore */ }
-      await msal.loginRedirect({
+      // Popup flow: keeps state inside this window, no root-page detour and
+      // no chance of React Router consuming the response fragment.
+      const result = await msal.loginPopup({
         scopes: ['openid', 'email', 'profile'],
         prompt: 'select_account',
       });
-      // loginRedirect navigates the whole page; code below only runs on error.
+      if (!result?.idToken) throw new Error('No id_token from Microsoft');
+      const { data } = await api.post('/auth/microsoft-verify', { id_token: result.idToken });
+      handleAuthSuccess(data, 'Microsoft');
     } catch (err) {
-      try { sessionStorage.removeItem('iema_msal_pending'); } catch { /* ignore */ }
       console.error('[MS] sign-in error:', err);
       const code = err?.errorCode || '';
       const msg = err?.errorMessage || err?.message || '';

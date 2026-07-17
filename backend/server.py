@@ -64,9 +64,7 @@ api_router.include_router(career_router)
 api_router.include_router(builder_router)
 api_router.include_router(counseling_router)
 
-# Stripe webhook needs to be at /api/webhook/stripe (root-of-api)
-from routers.payments_routes import stripe_webhook
-api_router.add_api_route("/webhook/stripe", stripe_webhook, methods=["POST"], include_in_schema=False)
+# Stripe was removed; nothing to mount at /api/webhook/stripe anymore.
 
 app.include_router(api_router)
 

@@ -1,20 +1,19 @@
-"""Payment routes: Stripe + Razorpay."""
+"""Payment routes: Razorpay (converts USD packs → INR at checkout) + IAP.
+
+Stripe was removed per product decision — all web payments go through Razorpay,
+all mobile subscriptions through App Store / Play Store IAP.
+"""
 import os
-import hmac
-import hashlib
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional
 from pydantic import BaseModel
 from bson import ObjectId
 import razorpay
-from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout, CheckoutSessionRequest, CheckoutSessionResponse
-)
 from auth import get_current_user
 from db import credit_packs_col, payment_transactions_col, now_iso
 from models import (
-    StripeCheckoutRequest, RazorpayOrderRequest, RazorpayVerifyRequest,
+    RazorpayOrderRequest, RazorpayVerifyRequest,
     PaymentTransaction, User
 )
 from services.credit_service import add_credits
@@ -23,9 +22,10 @@ from services.notification_service import notify
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["payments"])
 
-STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+# Fixed USD→INR conversion rate — kept slightly padded so we never undercharge.
+USD_TO_INR = float(os.environ.get("USD_TO_INR_RATE", "85"))
 
 _razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)) if RAZORPAY_KEY_ID else None
 
@@ -41,102 +41,8 @@ async def _get_pack(slug: str, currency: str = None) -> dict:
     return doc
 
 
-# ================= STRIPE =================
-@router.post("/stripe/checkout")
-async def create_stripe_checkout(req: StripeCheckoutRequest, request: Request, user: User = Depends(get_current_user)):
-    pack = await _get_pack(req.pack_slug, "usd")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-
-    success_url = f"{req.origin_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}&provider=stripe"
-    cancel_url = f"{req.origin_url}/billing"
-    metadata = {
-        "user_id": user.id,
-        "pack_slug": req.pack_slug,
-        "credits": str(pack["credits"] + pack.get("bonus_credits", 0)),
-    }
-    checkout_req = CheckoutSessionRequest(
-        amount=float(pack["price"]),
-        currency="usd",
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata=metadata,
-    )
-    session: CheckoutSessionResponse = await stripe_checkout.create_checkout_session(checkout_req)
-
-    # Record transaction
-    tx = PaymentTransaction(
-        user_id=user.id,
-        provider="stripe",
-        pack_slug=req.pack_slug,
-        amount=float(pack["price"]),
-        currency="usd",
-        credits=float(pack["credits"] + pack.get("bonus_credits", 0)),
-        session_id=session.session_id,
-        status="initiated",
-        metadata=metadata,
-    )
-    await payment_transactions_col.insert_one(tx.to_mongo())
-    return {"url": session.url, "session_id": session.session_id}
-
-
-@router.get("/stripe/status/{session_id}")
-async def stripe_status(session_id: str, request: Request, user: User = Depends(get_current_user)):
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-    checkout_status = await stripe_checkout.get_checkout_status(session_id)
-
-    tx_doc = await payment_transactions_col.find_one({"session_id": session_id, "user_id": user.id})
-    if not tx_doc:
-        raise HTTPException(404, "Transaction not found")
-    tx = PaymentTransaction.from_mongo(tx_doc)
-
-    updates = {
-        "status": "paid" if checkout_status.payment_status == "paid" else ("expired" if checkout_status.status == "expired" else "pending"),
-        "updated_at": now_iso(),
-    }
-    if checkout_status.payment_status == "paid" and not tx.credited:
-        updates["credited"] = True
-        await add_credits(user.id, tx.credits, bucket="purchased", kind="purchase", description=f"Purchase: {tx.pack_slug}", ref_id=session_id)
-        await notify(user.id, "Purchase successful", f"{int(tx.credits)} credits added to your wallet.", kind="purchase")
-
-    await payment_transactions_col.update_one({"session_id": session_id}, {"$set": updates})
-    return {
-        "status": updates["status"],
-        "payment_status": checkout_status.payment_status,
-        "amount": checkout_status.amount_total / 100 if checkout_status.amount_total else tx.amount,
-        "currency": checkout_status.currency,
-        "credits": tx.credits,
-        "credited": updates.get("credited", tx.credited),
-    }
-
-
-@router.post("/webhook/stripe", include_in_schema=False)
-async def stripe_webhook(request: Request):
-    body = await request.body()
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-    try:
-        event = await stripe_checkout.handle_webhook(body, request.headers.get("Stripe-Signature"))
-    except Exception as e:
-        logger.exception(f"Stripe webhook error: {e}")
-        raise HTTPException(400, "Invalid webhook")
-
-    if event.payment_status == "paid":
-        tx_doc = await payment_transactions_col.find_one({"session_id": event.session_id})
-        if tx_doc:
-            tx = PaymentTransaction.from_mongo(tx_doc)
-            if not tx.credited:
-                await add_credits(tx.user_id, tx.credits, bucket="purchased", kind="purchase", description=f"Purchase: {tx.pack_slug}", ref_id=event.session_id)
-                await payment_transactions_col.update_one(
-                    {"session_id": event.session_id},
-                    {"$set": {"status": "paid", "credited": True, "updated_at": now_iso()}},
-                )
-                await notify(tx.user_id, "Purchase successful", f"{int(tx.credits)} credits added to your wallet.", kind="purchase")
-    return {"ok": True}
+# ================= STRIPE (removed) =================
+# All Stripe endpoints were removed. Razorpay is the sole web payment provider.
 
 
 # ================= RAZORPAY =================
@@ -144,30 +50,34 @@ async def stripe_webhook(request: Request):
 async def create_razorpay_order(req: RazorpayOrderRequest, user: User = Depends(get_current_user)):
     if not _razorpay_client:
         raise HTTPException(501, "Razorpay not configured")
-    pack = await _get_pack(req.pack_slug, "inr")
-    amount_paise = int(float(pack["price"]) * 100)
+    # Fetch USD-priced pack, convert to INR paise for Razorpay (India merchant).
+    pack = await _get_pack(req.pack_slug, "usd")
+    price_usd = float(pack["price"])
+    amount_paise = int(round(price_usd * USD_TO_INR * 100))
     order = _razorpay_client.order.create({
         "amount": amount_paise,
         "currency": "INR",
         "payment_capture": 1,
-        "notes": {"user_id": user.id, "pack_slug": req.pack_slug},
+        "notes": {"user_id": user.id, "pack_slug": req.pack_slug, "usd_price": str(price_usd)},
     })
     tx = PaymentTransaction(
         user_id=user.id,
         provider="razorpay",
         pack_slug=req.pack_slug,
-        amount=float(pack["price"]),
-        currency="inr",
+        amount=price_usd,
+        currency="usd",
         credits=float(pack["credits"] + pack.get("bonus_credits", 0)),
         order_id=order["id"],
         status="initiated",
-        metadata={"user_id": user.id, "pack_slug": req.pack_slug},
+        metadata={"user_id": user.id, "pack_slug": req.pack_slug,
+                  "amount_paise": amount_paise, "fx_rate": USD_TO_INR},
     )
     await payment_transactions_col.insert_one(tx.to_mongo())
     return {
         "order_id": order["id"],
         "amount": amount_paise,
         "currency": "INR",
+        "usd_price": price_usd,
         "key_id": RAZORPAY_KEY_ID,
         "credits": tx.credits,
         "pack": pack,
