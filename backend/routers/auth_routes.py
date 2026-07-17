@@ -30,6 +30,10 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
 MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
 APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
+GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
+LINKEDIN_CLIENT_ID = os.environ.get("LINKEDIN_CLIENT_ID", "")
+LINKEDIN_CLIENT_SECRET = os.environ.get("LINKEDIN_CLIENT_SECRET", "")
 APP_URL = os.environ.get("APP_URL", "")
 
 _ms_jwks_by_issuer: dict = {}
@@ -161,6 +165,9 @@ async def me(user: User = Depends(get_current_user)):
 @router.patch("/me", response_model=UserPublic)
 async def update_me(req: UserUpdateRequest, user: User = Depends(get_current_user)):
     updates = {k: v for k, v in req.model_dump(exclude_none=True).items()}
+    # Validate ai_provider
+    if updates.get("ai_provider") not in (None, "iema", "claude", "openai"):
+        raise HTTPException(400, "ai_provider must be one of: iema, claude, openai")
     updates["updated_at"] = now_iso()
     await users_col.update_one({"_id": ObjectId(user.id)}, {"$set": updates})
     doc = await users_col.find_one({"_id": ObjectId(user.id)})
@@ -436,6 +443,123 @@ async def microsoft_oauth(req: OAuthCodeRequest, request: Request):
     }
 
 
+# ================= GITHUB OAUTH =================
+@router.post("/github", response_model=dict)
+async def github_oauth(req: OAuthCodeRequest, request: Request):
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "GitHub OAuth not configured")
+    async with httpx.AsyncClient(timeout=15) as http:
+        token_res = await http.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": req.code,
+                "redirect_uri": req.redirect_uri,
+            },
+            headers={"Accept": "application/json"},
+        )
+        if token_res.status_code != 200:
+            logger.error(f"GitHub token exchange failed: {token_res.text}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "GitHub token exchange failed")
+        tokens = token_res.json()
+        access_token = tokens.get("access_token")
+        if not access_token:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, tokens.get("error_description", "No access token from GitHub"))
+        h = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "User-Agent": "iema-ai"}
+        user_res = await http.get("https://api.github.com/user", headers=h)
+        if user_res.status_code != 200:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Failed to fetch GitHub user info")
+        info = user_res.json()
+        # Emails may need a separate call if primary is private
+        email = (info.get("email") or "").lower()
+        if not email:
+            emails_res = await http.get("https://api.github.com/user/emails", headers=h)
+            if emails_res.status_code == 200:
+                for e in emails_res.json():
+                    if e.get("primary") and e.get("verified"):
+                        email = (e.get("email") or "").lower(); break
+        if not email:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No verified email on your GitHub account")
+    name = info.get("name") or info.get("login") or email.split("@")[0]
+    avatar = info.get("avatar_url")
+    provider_id = str(info.get("id"))
+
+    doc = await users_col.find_one({"email": email})
+    if doc:
+        user = User.from_mongo(doc)
+        await users_col.update_one({"_id": ObjectId(user.id)}, {"$set": {"last_login_at": now_iso(), "avatar": avatar or user.avatar}})
+    else:
+        user = User(email=email, name=name, avatar=avatar, provider="github",
+                    provider_id=provider_id, email_verified=True, last_login_at=now_iso(), plan="free")
+        result = await users_col.insert_one(user.to_mongo())
+        user.id = str(result.inserted_id)
+        await get_or_create_wallet(user.id)
+
+    access = create_access_token(user.id, user.role)
+    refresh = create_refresh_token(user.id)
+    await store_session(user.id, refresh, request.headers.get("user-agent", ""), request.client.host if request.client else "")
+    return {"user": _user_to_public(user).model_dump(),
+            "tokens": TokenPair(access_token=access, refresh_token=refresh).model_dump()}
+
+
+# ================= LINKEDIN OAUTH (OpenID Connect) =================
+@router.post("/linkedin", response_model=dict)
+async def linkedin_oauth(req: OAuthCodeRequest, request: Request):
+    if not LINKEDIN_CLIENT_ID or not LINKEDIN_CLIENT_SECRET:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "LinkedIn OAuth not configured")
+    async with httpx.AsyncClient(timeout=15) as http:
+        token_res = await http.post(
+            "https://www.linkedin.com/oauth/v2/accessToken",
+            data={
+                "grant_type": "authorization_code",
+                "code": req.code,
+                "redirect_uri": req.redirect_uri,
+                "client_id": LINKEDIN_CLIENT_ID,
+                "client_secret": LINKEDIN_CLIENT_SECRET,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if token_res.status_code != 200:
+            logger.error(f"LinkedIn token exchange failed: {token_res.text}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "LinkedIn token exchange failed")
+        tokens = token_res.json()
+        access_token = tokens.get("access_token")
+        # OIDC userinfo endpoint (requires openid + profile + email scopes)
+        info_res = await http.get(
+            "https://api.linkedin.com/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if info_res.status_code != 200:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"LinkedIn userinfo failed: {info_res.text[:200]}")
+        info = info_res.json()
+
+    email = (info.get("email") or "").lower()
+    if not email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No email in LinkedIn profile")
+    name = info.get("name") or f"{info.get('given_name','')} {info.get('family_name','')}".strip() or email.split("@")[0]
+    avatar = info.get("picture")
+    provider_id = info.get("sub")
+
+    doc = await users_col.find_one({"email": email})
+    if doc:
+        user = User.from_mongo(doc)
+        await users_col.update_one({"_id": ObjectId(user.id)}, {"$set": {"last_login_at": now_iso(), "avatar": avatar or user.avatar}})
+    else:
+        user = User(email=email, name=name, avatar=avatar, provider="linkedin",
+                    provider_id=provider_id, email_verified=True, last_login_at=now_iso(), plan="free")
+        result = await users_col.insert_one(user.to_mongo())
+        user.id = str(result.inserted_id)
+        await get_or_create_wallet(user.id)
+
+    access = create_access_token(user.id, user.role)
+    refresh = create_refresh_token(user.id)
+    await store_session(user.id, refresh, request.headers.get("user-agent", ""), request.client.host if request.client else "")
+    return {"user": _user_to_public(user).model_dump(),
+            "tokens": TokenPair(access_token=access, refresh_token=refresh).model_dump()}
+
+
+
 # ================= EMAIL VERIFICATION =================
 @router.post("/send-verify-email")
 async def send_verify_email(user: User = Depends(get_current_user)):
@@ -528,6 +652,8 @@ async def oauth_config():
         "google": {"enabled": bool(GOOGLE_CLIENT_ID), "client_id": GOOGLE_CLIENT_ID},
         "microsoft": {"enabled": bool(MICROSOFT_CLIENT_ID), "client_id": MICROSOFT_CLIENT_ID},
         "apple": {"enabled": bool(APPLE_CLIENT_ID), "client_id": APPLE_CLIENT_ID},
+        "github": {"enabled": bool(GITHUB_CLIENT_ID), "client_id": GITHUB_CLIENT_ID},
+        "linkedin": {"enabled": bool(LINKEDIN_CLIENT_ID), "client_id": LINKEDIN_CLIENT_ID},
         "facebook": {"enabled": False, "reason": "not configured"},
     }
 

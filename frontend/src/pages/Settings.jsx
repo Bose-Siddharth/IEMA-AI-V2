@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import api from '@/lib/api';
@@ -7,16 +7,41 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Sparkles, Zap, Cpu } from 'lucide-react';
 import { toast } from 'sonner';
 import { setTheme } from '@/store/slices/uiSlice';
-import { logout } from '@/store/slices/authSlice';
+import { logout, setAuth } from '@/store/slices/authSlice';
+import { cn } from '@/lib/utils';
+
+const AI_PROVIDERS = [
+  { key: 'iema',   label: 'IEMA (recommended)', Icon: Sparkles, desc: 'Data lake first, then randomly picks Claude or OpenAI. Best value.' },
+  { key: 'claude', label: 'Claude',              Icon: Cpu,      desc: 'Always use Anthropic Claude Haiku 4.5.' },
+  { key: 'openai', label: 'OpenAI',              Icon: Zap,      desc: 'Always use OpenAI GPT-4o mini.' },
+];
 
 export default function Settings() {
   const theme = useSelector((s) => s.ui.theme);
+  const user = useSelector((s) => s.auth.user);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [provider, setProvider] = useState(user?.ai_provider || 'iema');
+  const [savingProv, setSavingProv] = useState(false);
+
+  useEffect(() => { setProvider(user?.ai_provider || 'iema'); }, [user]);
+
+  const saveProvider = async (p) => {
+    if (p === provider) return;
+    setProvider(p); setSavingProv(true);
+    try {
+      const { data } = await api.patch('/auth/me', { ai_provider: p });
+      dispatch(setAuth({ user: data }));
+      toast.success('AI preference saved');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed');
+    } finally { setSavingProv(false); }
+  };
 
   const deleteAccount = async () => {
     if (confirmText !== 'DELETE') return;
@@ -36,6 +61,31 @@ export default function Settings() {
       <div className="mb-8">
         <h1 className="font-display text-3xl font-medium tracking-tight">Settings</h1>
         <p className="text-muted-foreground mt-1">Manage preferences and account.</p>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-6 mb-6" data-testid="settings-ai-provider">
+        <h3 className="font-display text-lg font-medium mb-1">AI provider</h3>
+        <p className="text-sm text-muted-foreground mb-4">Choose which model powers your AI experiences.</p>
+        <div className="space-y-2">
+          {AI_PROVIDERS.map((p) => (
+            <button key={p.key} onClick={() => saveProvider(p.key)} disabled={savingProv}
+              data-testid={`settings-provider-${p.key}`}
+              className={cn(
+                'w-full text-left flex items-start gap-3 p-3 rounded-lg border transition-all',
+                provider === p.key ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+              )}>
+              <div className={cn('h-8 w-8 rounded-md flex-shrink-0 flex items-center justify-center',
+                provider === p.key ? 'bg-primary/15' : 'bg-[hsl(var(--surface))]')}>
+                <p.Icon className={cn('h-4 w-4', provider === p.key ? 'text-primary' : 'text-muted-foreground')} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">{p.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{p.desc}</div>
+              </div>
+              {provider === p.key && <span className="text-xs text-primary uppercase tracking-wider">Active</span>}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-6 mb-6">

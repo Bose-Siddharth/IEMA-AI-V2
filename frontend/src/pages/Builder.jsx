@@ -255,7 +255,7 @@ function CreateDialog({ open, onOpenChange, onCreated, dispatch }) {
     try {
       const { data } = await api.post('/builder/projects', { prompt });
       if (data.balance != null) dispatch(setWalletBalance(data.balance));
-      toast.success(data.cached ? 'Loaded from data lake' : 'Project created');
+      toast.success('Ready');
       onOpenChange(false); setPrompt('');
       onCreated(data.project);
     } catch (e) { toast.error(e.response?.data?.detail || 'Create failed'); }

@@ -12,6 +12,8 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 from services.knowledge_retriever import retrieve, store as kb_store
 from services.settings_service import get_setting
 from services.capability_manifest import with_capability
+from services.provider_selector import pick_provider
+from fastapi import HTTPException, status
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +53,18 @@ async def counsel(mode: str, message: str, user_id: Optional[str] = None) -> dic
                 "mode": mode,
             }
 
+    if await get_setting("kb_only_mode", False):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Knowledge-only mode is on and no cached answer was found. Try rephrasing.")
+
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"counsel-{mode}-{(user_id or 'anon')[:12]}",
         system_message=with_capability(SYSTEM_PROMPTS[mode]),
-    ).with_model("anthropic", COUNSEL_MODEL)
+    )
+    provider, model = await pick_provider(user_id)
+    chat = chat.with_model(provider, model)
     resp = await chat.send_message(UserMessage(text=message))
     content = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))
-    await kb_store(kind, message, content, user_id=user_id, meta={"mode": mode})
-    return {"response": content, "source": "llm", "mode": mode}
+    await kb_store(kind, message, content, user_id=user_id, meta={"mode": mode, "provider": provider})
+    return {"response": content, "source": "llm", "mode": mode, "provider": provider}

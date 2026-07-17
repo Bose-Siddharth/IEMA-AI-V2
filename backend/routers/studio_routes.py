@@ -36,6 +36,7 @@ async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_curre
         source = result["source"]
         billing = await spend(
             user.id, "studio_summarize",
+            provider_override=result.get("provider"),
             skip_charge=(source == "kb"),
             description="AI Studio summary",
         )

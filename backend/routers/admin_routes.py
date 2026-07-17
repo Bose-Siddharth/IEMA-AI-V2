@@ -1,6 +1,7 @@
 """Admin routes."""
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from bson import ObjectId
 from auth import require_admin
 from db import (
@@ -99,7 +100,6 @@ async def list_transactions(admin: User = Depends(require_admin), limit: int = 1
 # --- Knowledge Bank + Settings ---
 from services.knowledge_retriever import stats as kb_stats_fn
 from services.settings_service import all_settings, set_setting, get_setting, DEFAULTS
-from pydantic import BaseModel
 
 
 class SettingUpdate(BaseModel):
@@ -161,6 +161,15 @@ class PricingUpdate(BaseModel):
 
 
 class PlanUpdate(BaseModel):
+    name: Optional[str] = None
+    monthly_credits: Optional[float] = None
+    window_hours: Optional[int] = None
+    window_credits: Optional[float] = None
+    price_inr: Optional[float] = None
+    price_usd: Optional[float] = None
+    billing_period: Optional[str] = None
+    is_free: Optional[bool] = None
+    one_time: Optional[bool] = None
     name: Optional[str] = None
     monthly_credits: Optional[float] = None
     window_hours: Optional[int] = None
@@ -287,11 +296,11 @@ async def analytics_finance(period: str = "30d", admin: User = Depends(require_a
     margin_usd = income_usd - expense_usd
     return {
         "period": period, "since": since,
-        "expense_usd": round(expense_usd, 4),
+        "expense_usd": round(expense_usd, 6),
         "income_credits": credits_added,
-        "income_inr_estimate": round(income_inr, 2),
-        "income_usd_estimate": round(income_usd, 2),
-        "margin_usd_estimate": round(margin_usd, 2),
+        "income_inr_estimate": round(income_inr, 4),
+        "income_usd_estimate": round(income_usd, 4),
+        "margin_usd_estimate": round(margin_usd, 4),
     }
 
 
@@ -374,4 +383,109 @@ async def trigger_kb_engine(admin: User = Depends(require_admin)):
             import logging
             logging.getLogger(__name__).exception(f"KB engine run failed: {e}")
     asyncio.create_task(_bg())
+
+
+# --- Admin v2.1: plan CRUD + discount codes + kb-only-mode ---
+from services.pricing_engine import create_plan, delete_plan
+from services.discount_service import (
+    create_discount, list_discounts, update_discount, delete_discount, validate as validate_discount
+)
+
+
+class PlanCreate(BaseModel):
+    plan_id: str = Field(min_length=2, max_length=32)
+    name: str
+    monthly_credits: float
+    window_hours: int = 5
+    window_credits: float
+    price_usd: float = 0.0
+    billing_period: str = "monthly"  # monthly | annual | one_time
+    is_free: bool = False
+    one_time: bool = False
+    priority: int = 99
+
+
+@router.post("/plans")
+async def admin_create_plan(req: PlanCreate, admin: User = Depends(require_admin)):
+    try:
+        doc = await create_plan(req.plan_id, req.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    from services.data_lake import log_event
+    await log_event("admin_plan_created", user_id=admin.id, payload={"plan_id": req.plan_id})
+    return {"ok": True, "plan": doc}
+
+
+@router.delete("/plans/{plan_id}")
+async def admin_delete_plan(plan_id: str, admin: User = Depends(require_admin)):
+    ok = await delete_plan(plan_id)
+    if not ok:
+        raise HTTPException(400, "Cannot delete this plan (free is protected)")
+    from services.data_lake import log_event
+    await log_event("admin_plan_deleted", user_id=admin.id, payload={"plan_id": plan_id})
+    return {"ok": True}
+
+
+class DiscountCreate(BaseModel):
+    code: str = Field(min_length=3, max_length=32)
+    percent_off: float = 0
+    flat_off_usd: float = 0
+    applies_to: str = "any"
+    max_uses: int = 0
+    expires_at: Optional[str] = None
+    active: bool = True
+
+
+@router.get("/discounts")
+async def admin_list_discounts(admin: User = Depends(require_admin)):
+    return {"items": await list_discounts()}
+
+
+@router.post("/discounts")
+async def admin_create_discount(req: DiscountCreate, admin: User = Depends(require_admin)):
+    if req.percent_off <= 0 and req.flat_off_usd <= 0:
+        raise HTTPException(400, "Provide percent_off or flat_off_usd (or both)")
+    try:
+        doc = await create_discount(req.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "discount": {**doc, "code": doc.pop("_id")}}
+
+
+class DiscountUpdate(BaseModel):
+    percent_off: Optional[float] = None
+    flat_off_usd: Optional[float] = None
+    applies_to: Optional[str] = None
+    max_uses: Optional[int] = None
+    expires_at: Optional[str] = None
+    active: Optional[bool] = None
+
+
+@router.patch("/discounts/{code}")
+async def admin_update_discount(code: str, req: DiscountUpdate, admin: User = Depends(require_admin)):
+    updates = {k: v for k, v in req.model_dump(exclude_none=True).items()}
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+    await update_discount(code, updates)
+    return {"ok": True}
+
+
+@router.delete("/discounts/{code}")
+async def admin_delete_discount(code: str, admin: User = Depends(require_admin)):
+    ok = await delete_discount(code)
+    if not ok:
+        raise HTTPException(404, "Discount not found")
+    return {"ok": True}
+
+
+class DiscountValidateReq(BaseModel):
+    code: str
+    base_usd: float
+    target_kind: Optional[str] = None
+
+
+@router.post("/discounts/validate")
+async def admin_validate_discount(req: DiscountValidateReq, admin: User = Depends(require_admin)):
+    return await validate_discount(req.code, req.base_usd, req.target_kind)
+
     return {"ok": True, "message": "Knowledge engine pass started in background"}

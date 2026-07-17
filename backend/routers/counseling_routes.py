@@ -34,6 +34,7 @@ async def counsel_route(req: CounselRequest, user: User = Depends(get_current_us
 
     billing = await spend(
         user.id, f"counseling_{req.mode}",
+        provider_override=result.get("provider"),
         skip_charge=(result["source"] == "kb"),
         description=f"Counseling ({req.mode})",
     )

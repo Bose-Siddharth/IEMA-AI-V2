@@ -7,6 +7,7 @@ from emergentintegrations.llm.openai.image_generation import OpenAIImageGenerati
 from services.knowledge_retriever import retrieve, store
 from services.settings_service import get_setting
 from services.capability_manifest import with_capability
+from services.provider_selector import pick_provider
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,11 @@ async def summarize_text(session_id: str, text: str, style: str = "default", use
         if hit:
             return {"response": hit["response"], "source": "kb", "match": hit["match"], "score": hit["score"]}
 
+    if await get_setting("kb_only_mode", False):
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Knowledge-only mode is on and no cached answer was found.")
+
     system_prompt = SUMMARIZE_SYSTEM
     if style == "eli5":
         system_prompt += " Rewrite everything so a 12-year-old can understand it."
@@ -37,11 +43,13 @@ async def summarize_text(session_id: str, text: str, style: str = "default", use
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
         system_message=with_capability(system_prompt),
-    ).with_model("anthropic", "claude-haiku-4-5-20251001")
+    )
+    provider, model = await pick_provider(user_id)
+    chat = chat.with_model(provider, model)
     resp = await chat.send_message(UserMessage(text=text))
     summary = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))
-    await store(kb_kind, text, summary, user_id=user_id, meta={"style": style})
-    return {"response": summary, "source": "llm"}
+    await store(kb_kind, text, summary, user_id=user_id, meta={"style": style, "provider": provider})
+    return {"response": summary, "source": "llm", "provider": provider}
 
 
 async def generate_image_bytes(prompt: str, quality: str = "low", n: int = 1) -> List[bytes]:

@@ -58,6 +58,17 @@ Build IEMA.ai v2 as a complete, production-ready AI Super Platform from scratch 
 - **Mobile `BuilderScreen.js`** — list + create + refine + open-share-URL.
 - **Iteration 9 tests**: 25/25 backend + 8/8 UI passing.
 
+### Phase 7 — Batch C: Social+Provider+Discounts+Endgame Toggle (2026-02-17)
+- **LinkedIn OAuth** (`POST /api/auth/linkedin`) + **GitHub OAuth** (`POST /api/auth/github`) — OpenID Connect flow. Both wired into login page with proper icons.
+- **AI Provider selector** (`services/provider_selector.py`) — per-user `ai_provider` field: `iema` (KB → random Claude/OpenAI) · `claude` · `openai`. New Settings section for users to choose. Every LLM call now records the actual provider — admin Providers dashboard shows both anthropic and openai side-by-side.
+- **Plans upgraded**: Pro $19.99/mo · Pro Annual $199.99 · Team $49.99/mo · Team Annual $499.99. Free stays 25 credits one-time.
+- **Admin plan CRUD** — `POST/DELETE /api/admin/plans/{id}` to create custom plans (Student $4.99 example). Free plan is protected.
+- **Discount codes** (`services/discount_service.py`) — full admin CRUD at `/api/admin/discounts` (percent/flat, applies_to, max_uses, expires_at). Validate endpoint returns final USD price.
+- **Knowledge-only mode** — new admin toggle in Data Lake tab. When on, LLM calls fail with 503 if KB has no match. The path to zero third-party dependency.
+- **Cache language hidden from users** — removed "From Data Lake / Fresh" badges from counseling, "credits used" toasts everywhere. Users just see the answer.
+- **Admin finance decimals** — expense/income/margin now show 4 decimals (was 2).
+- **Env**: `GITHUB_CLIENT_ID/SECRET`, `LINKEDIN_CLIENT_ID/SECRET`, `APPLE_APP_STORE_SHARED_SECRET` configured.
+
 ### Phase 6 — Batch B: Central Pricing Engine + Admin v2 + Continuous KB (2026-02-17)
 - **Pricing Engine** (`services/pricing_engine.py`) — dynamic, Mongo-driven:
   - `pricing_col` — 13 seed services with per-call credit costs (admin-editable)
@@ -133,14 +144,15 @@ services/
 
 ## Backlog / Next Actions
 
-### P1 (Batch B — WAITING FOR API KEYS FROM USER)
-- **Multi-social sign-in expansion** — backend `linked_accounts` infra is DONE. Need frontend Profile UI + Apple/Google/Microsoft OAuth-link buttons + **LinkedIn OAuth** (need Client ID/Secret from linkedin.com/developers) + **GitHub OAuth** (Client ID/Secret from github.com/settings/developers).
-- **Mobile IAP** — Google Play + Apple App Store receipt validation. Need: Apple App Store shared secret + Google Play service-account JSON.
-- **Stripe Subscriptions** — I have Stripe test key already. Need user's OK on the 3-plan pricing (Free 25 one-time / Pro ₹299/mo / Team ₹999/mo) or their preferred numbers.
-- **Admin Pricing Excel** — .xlsx export with API costs + credit economics + tier pricing (openpyxl already installed).
+### P1 (Batch B — remaining)
+- **Frontend Connected-Accounts UI in Profile** — surface `/api/auth/me/linked` results with connect/disconnect buttons for GitHub/LinkedIn/Google/Microsoft/Apple.
+- **Mobile IAP** — Google Play + Apple App Store receipt validation. Apple shared secret provided (in `APPLE_APP_STORE_SHARED_SECRET`). Still need Google Play service-account JSON.
+- **Razorpay Subscriptions** — the existing Razorpay test key drives recurring plans (Pro $19.99/mo, Team $49.99/mo, Annual variants). Backend `subscriptions` collection + `/api/payments/subscribe/{plan_id}` + webhook handling remaining.
+- **Admin Pricing Excel** — .xlsx export.
 
-### P2 (Endgame — 0 third-party dependency)
-- **Continuous Knowledge Engine** — DONE. Runs every 4h. Wikipedia + DuckDuckGo. Admin can force-run.
+### P2 (Endgame — DONE toggles/infra)
+- **Continuous Knowledge Engine** — running every 4h. Admin can force-run.
+- **Knowledge-only mode toggle** — Admin can flip switch → all AI calls require KB match.
 
 ### P0 (before app store submission)
 - Paste real `RESEND_API_KEY` from resend.com so verify/reset emails actually send

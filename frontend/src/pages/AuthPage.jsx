@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Sparkles, Loader2, Apple as AppleIcon } from 'lucide-react';
+import { Sparkles, Loader2, Apple as AppleIcon, Github, Linkedin } from 'lucide-react';
 import { AUTH } from '@/constants/testIds';
 
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
@@ -204,6 +204,27 @@ export default function AuthPage({ mode }) {
     } finally { setLoading(false); }
   };
 
+  const githubSignIn = () => {
+    if (!oauthCfg.github?.enabled) { toast.info('GitHub OAuth not configured'); return; }
+    const redirect_uri = window.location.origin + '/auth/callback';
+    const state = 'github';
+    const url = 'https://github.com/login/oauth/authorize?' + new URLSearchParams({
+      client_id: oauthCfg.github.client_id, redirect_uri, scope: 'read:user user:email', state,
+    }).toString();
+    window.location.href = url;
+  };
+
+  const linkedinSignIn = () => {
+    if (!oauthCfg.linkedin?.enabled) { toast.info('LinkedIn OAuth not configured'); return; }
+    const redirect_uri = window.location.origin + '/auth/callback';
+    const state = 'linkedin';
+    const url = 'https://www.linkedin.com/oauth/v2/authorization?' + new URLSearchParams({
+      response_type: 'code', client_id: oauthCfg.linkedin.client_id, redirect_uri,
+      scope: 'openid profile email', state,
+    }).toString();
+    window.location.href = url;
+  };
+
   const microsoftSignIn = async () => {
     if (!oauthCfg.microsoft?.enabled) { toast.info('Microsoft OAuth not configured'); return; }
     setLoading(true);
@@ -303,7 +324,15 @@ export default function AuthPage({ mode }) {
                 <svg className="h-3.5 w-3.5 mr-1" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
                 Microsoft
               </Button>
-              <Button variant="outline" size="sm" onClick={facebookSignIn} data-testid="auth-facebook-btn">Facebook</Button>
+              <Button variant="outline" size="sm" onClick={githubSignIn} disabled={!oauthCfg.github?.enabled || loading} data-testid="auth-github-btn">
+                <Github className="h-3.5 w-3.5 mr-1" /> GitHub
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" size="sm" onClick={linkedinSignIn} disabled={!oauthCfg.linkedin?.enabled || loading} data-testid="auth-linkedin-btn">
+                <Linkedin className="h-3.5 w-3.5 mr-1 text-[#0a66c2]" /> LinkedIn
+              </Button>
+              <Button variant="outline" size="sm" onClick={facebookSignIn} data-testid="auth-facebook-btn" disabled>Facebook</Button>
             </div>
           </div>
 

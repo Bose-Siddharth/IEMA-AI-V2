@@ -39,11 +39,13 @@ DEFAULT_PRICING = [
     {"_id": "builder_refine",         "credit_cost": 8,  "provider": "anthropic", "category": "builder",    "description": "Code Builder refine"},
 ]
 
-# Default plans. Free is ONE-TIME (no monthly refill). Beta-friendly numbers.
+# Default plans. Free is ONE-TIME (no monthly refill). USD pricing.
 DEFAULT_PLANS = [
-    {"_id": "free",  "name": "Free (one-time)",  "monthly_credits": 25,   "window_hours": 4,  "window_credits": 15,  "price_inr": 0,    "is_free": True,  "one_time": True,  "priority": 1},
-    {"_id": "pro",   "name": "Pro",              "monthly_credits": 500,  "window_hours": 5,  "window_credits": 80,  "price_inr": 299,  "is_free": False, "one_time": False, "priority": 2},
-    {"_id": "team",  "name": "Team",             "monthly_credits": 2000, "window_hours": 6,  "window_credits": 300, "price_inr": 999,  "is_free": False, "one_time": False, "priority": 3},
+    {"_id": "free",       "name": "Free",              "monthly_credits": 25,   "window_hours": 4,  "window_credits": 15,  "price_usd": 0.0,    "billing_period": "one_time", "is_free": True,  "one_time": True,  "priority": 1},
+    {"_id": "pro",        "name": "Pro",               "monthly_credits": 1500, "window_hours": 5,  "window_credits": 200, "price_usd": 19.99,  "billing_period": "monthly",  "is_free": False, "one_time": False, "priority": 2},
+    {"_id": "pro_annual", "name": "Pro (Annual)",      "monthly_credits": 1500, "window_hours": 5,  "window_credits": 200, "price_usd": 199.99, "billing_period": "annual",   "is_free": False, "one_time": False, "priority": 3},
+    {"_id": "team",       "name": "Team",              "monthly_credits": 5000, "window_hours": 6,  "window_credits": 500, "price_usd": 49.99,  "billing_period": "monthly",  "is_free": False, "one_time": False, "priority": 4},
+    {"_id": "team_annual","name": "Team (Annual)",     "monthly_credits": 5000, "window_hours": 6,  "window_credits": 500, "price_usd": 499.99, "billing_period": "annual",   "is_free": False, "one_time": False, "priority": 5},
 ]
 
 # Very rough $ estimates per credit per provider (for admin financial dashboard).
@@ -66,11 +68,16 @@ async def seed_defaults():
             upsert=True,
         )
     for plan in DEFAULT_PLANS:
-        await plans_col.update_one(
-            {"_id": plan["_id"]},
-            {"$setOnInsert": {**plan, "updated_at": now_iso()}},
-            upsert=True,
-        )
+        # For pre-existing plans we ONLY set on insert to preserve admin edits.
+        # However price_usd/billing_period are new fields — merge them if missing.
+        existing = await plans_col.find_one({"_id": plan["_id"]})
+        if existing:
+            add = {k: v for k, v in plan.items()
+                   if k not in ("_id",) and existing.get(k) is None}
+            if add:
+                await plans_col.update_one({"_id": plan["_id"]}, {"$set": add})
+        else:
+            await plans_col.insert_one({**plan, "updated_at": now_iso()})
 
 
 async def ensure_indexes():
@@ -123,10 +130,42 @@ async def list_plans() -> list:
 
 
 async def set_plan(plan_id: str, updates: Dict[str, Any]) -> None:
-    allowed = {"name", "monthly_credits", "window_hours", "window_credits", "price_inr", "is_free", "one_time"}
+    allowed = {"name", "monthly_credits", "window_hours", "window_credits",
+               "price_usd", "price_inr", "billing_period", "is_free", "one_time", "priority"}
     clean = {k: v for k, v in updates.items() if k in allowed}
     clean["updated_at"] = now_iso()
     await plans_col.update_one({"_id": plan_id}, {"$set": clean}, upsert=True)
+
+
+async def create_plan(plan_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    plan_id = plan_id.strip().lower().replace(" ", "_")
+    if not plan_id:
+        raise ValueError("plan_id required")
+    existing = await plans_col.find_one({"_id": plan_id})
+    if existing:
+        raise ValueError(f"Plan `{plan_id}` already exists")
+    doc = {
+        "_id": plan_id,
+        "name": data.get("name", plan_id.title()),
+        "monthly_credits": float(data.get("monthly_credits", 0)),
+        "window_hours": int(data.get("window_hours", 5)),
+        "window_credits": float(data.get("window_credits", 100)),
+        "price_usd": float(data.get("price_usd", 0)),
+        "billing_period": data.get("billing_period", "monthly"),
+        "is_free": bool(data.get("is_free", False)),
+        "one_time": bool(data.get("one_time", False)),
+        "priority": int(data.get("priority", 99)),
+        "created_at": now_iso(),
+    }
+    await plans_col.insert_one(doc)
+    return doc
+
+
+async def delete_plan(plan_id: str) -> bool:
+    if plan_id == "free":
+        return False  # Never delete free
+    res = await plans_col.delete_one({"_id": plan_id})
+    return res.deleted_count > 0
 
 
 async def get_user_plan(user_id: str) -> Dict[str, Any]:

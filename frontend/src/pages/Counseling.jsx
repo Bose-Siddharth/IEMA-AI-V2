@@ -4,7 +4,7 @@ import api from '@/lib/api';
 import { setWalletBalance } from '@/store/slices/uiSlice';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Heart, Briefcase, GraduationCap, Send, Sparkles, Database } from 'lucide-react';
+import { Loader2, Heart, Briefcase, GraduationCap, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -86,7 +86,7 @@ export default function Counseling() {
               <activeMode.Icon className="h-8 w-8 mx-auto text-primary mb-3" />
               <div className="text-lg font-medium">Start a private conversation</div>
               <div className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                Every question is retrieved from IEMA's data lake first for an instant, private answer.
+                Private, judgment-free. Ask anything.
               </div>
             </div>
           )}
@@ -103,23 +103,12 @@ export default function Counseling() {
                     <div className="prose-chat text-sm">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
                     </div>
-                    <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
-                      {m.source === 'kb' ? (
-                        <span className="flex items-center gap-1 text-emerald-500">
-                          <Database className="h-3 w-3" /> From Data Lake
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-primary">
-                          <Sparkles className="h-3 w-3" /> Fresh
-                        </span>
-                      )}
-                    </div>
                     {m.disclaimer && (
                       <div className="mt-3 text-[11px] text-muted-foreground italic border-t border-border/50 pt-2">
                         {m.disclaimer}
                       </div>
                     )}
-                  </>
+                    </>
                 )}
               </div>
             </div>

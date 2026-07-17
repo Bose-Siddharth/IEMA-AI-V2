@@ -67,6 +67,7 @@ function KnowledgePanel() {
   const [settings, setSettings] = useState(null);
   const [threshold, setThreshold] = useState(0.85);
   const [enabled, setEnabled] = useState(true);
+  const [onlyMode, setOnlyMode] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -74,6 +75,7 @@ function KnowledgePanel() {
     setStats(s.data); setSettings(cfg.data);
     setThreshold(cfg.data.settings.kb_similarity_threshold ?? 0.85);
     setEnabled(cfg.data.settings.kb_enabled ?? true);
+    setOnlyMode(cfg.data.settings.kb_only_mode ?? false);
   };
   useEffect(() => { load(); }, []);
 
@@ -82,6 +84,7 @@ function KnowledgePanel() {
     try {
       await api.post('/admin/settings', { key: 'kb_similarity_threshold', value: threshold });
       await api.post('/admin/settings', { key: 'kb_enabled', value: enabled });
+      await api.post('/admin/settings', { key: 'kb_only_mode', value: onlyMode });
       toast.success('Settings saved');
       load();
     } catch (e) { toast.error(e.response?.data?.detail || 'Save failed'); }
@@ -152,6 +155,16 @@ function KnowledgePanel() {
             <div>
               <div className="text-sm">Data Lake retrieval enabled</div>
               <div className="text-xs text-muted-foreground">Turn off to force all AI calls to hit the LLM.</div>
+            </div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox" checked={onlyMode} onChange={(e) => setOnlyMode(e.target.checked)}
+              className="w-4 h-4 accent-primary" data-testid="admin-kb-only-toggle"
+            />
+            <div>
+              <div className="text-sm">Knowledge-only mode (endgame)</div>
+              <div className="text-xs text-muted-foreground">Zero third-party dependency — LLM calls fail unless the KB has an answer.</div>
             </div>
           </label>
           <Button onClick={save} disabled={saving} data-testid="admin-kb-save-btn">

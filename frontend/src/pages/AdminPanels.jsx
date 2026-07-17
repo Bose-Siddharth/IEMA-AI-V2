@@ -47,9 +47,9 @@ export function FinancePanel() {
         <TabsList>{PERIODS.map(p => <TabsTrigger key={p.key} value={p.key}>{p.label}</TabsTrigger>)}</TabsList>
       </Tabs>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={TrendingDown} label="LLM Expense (est USD)" value={`$${totalExpense.toFixed(2)}`} sub={`period: ${period}`} tone="red" testid="admin-finance-expense" />
-        <StatCard icon={TrendingUp} label="Income (est USD)" value={`$${totalIncome.toFixed(2)}`} sub={`~₹${data?.income_inr_estimate?.toFixed(0)}`} tone="green" testid="admin-finance-income" />
-        <StatCard icon={DollarSign} label="Margin" value={`$${margin.toFixed(2)}`} sub={margin >= 0 ? 'Profitable' : 'Loss'} tone={margin >= 0 ? 'green' : 'red'} testid="admin-finance-margin" />
+        <StatCard icon={TrendingDown} label="LLM Expense (est USD)" value={`$${totalExpense.toFixed(4)}`} sub={`period: ${period}`} tone="red" testid="admin-finance-expense" />
+        <StatCard icon={TrendingUp} label="Income (est USD)" value={`$${totalIncome.toFixed(4)}`} sub={`~₹${data?.income_inr_estimate?.toFixed(2)}`} tone="green" testid="admin-finance-income" />
+        <StatCard icon={DollarSign} label="Margin" value={`$${margin.toFixed(4)}`} sub={margin >= 0 ? 'Profitable' : 'Loss'} tone={margin >= 0 ? 'green' : 'red'} testid="admin-finance-margin" />
       </div>
       <div className="rounded-xl border border-border bg-card p-6">
         <h3 className="font-display text-base font-medium mb-4">LLM expense over time (USD)</h3>

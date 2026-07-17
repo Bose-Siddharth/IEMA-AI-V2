@@ -10,6 +10,7 @@ settings_col = db["app_settings"]
 DEFAULTS = {
     "kb_similarity_threshold": 0.85,   # Jaccard threshold for semantic KB reuse
     "kb_enabled": True,                # Master switch — turn off to bypass KB
+    "kb_only_mode": False,             # If true, LLM calls fail unless KB has an answer
 }
 
 

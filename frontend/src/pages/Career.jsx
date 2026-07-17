@@ -104,7 +104,7 @@ function LearningPath() {
       const { data } = await api.post('/career/learning-path', { role, skills: skillsArr });
       setResult(data.roadmap_markdown);
       setMeta({ cached: data.cached, credits: data.credits_used });
-      toast.success(data.cached ? 'Loaded from data lake' : 'Generated');
+      toast.success('Ready');
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
     finally { setLoading(false); }
   };
@@ -124,7 +124,7 @@ function LearningPath() {
       </div>
       {meta && (
         <div className="text-xs text-muted-foreground">
-          {meta.cached ? 'From data lake' : 'Fresh generation'}
+          Ready
         </div>
       )}
       {result && (

@@ -17,6 +17,7 @@ class User(BaseDocument):
     linked_accounts: list = Field(default_factory=list)  # [{"provider","provider_id","email","connected_at"}]
     plan: str = "free"
     plan_since: Optional[str] = None
+    ai_provider: str = "iema"  # iema | claude | openai
     email_verified: bool = False
     theme: Literal["light", "dark", "system"] = "system"
     is_active: bool = True
@@ -69,6 +70,8 @@ class UserPublic(BaseModel):
     email_verified: bool
     theme: str
     created_at: str
+    plan: str = "free"
+    ai_provider: str = "iema"
 
 
 # ================= WALLET & CREDITS =================
@@ -246,3 +249,4 @@ class UserUpdateRequest(BaseModel):
     name: Optional[str] = None
     theme: Optional[str] = None
     avatar: Optional[str] = None
+    ai_provider: Optional[str] = None
