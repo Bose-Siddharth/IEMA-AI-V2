@@ -22,6 +22,7 @@ import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
 import Studio from '@/pages/Studio';
 import Career from '@/pages/Career';
+import Builder from '@/pages/Builder';
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
               <Route path="/chat" element={<Chat />} />
               <Route path="/studio" element={<Studio />} />
               <Route path="/career" element={<Career />} />
+              <Route path="/builder" element={<Builder />} />
               <Route path="/usage" element={<Usage />} />
               <Route path="/wallet" element={<Wallet />} />
               <Route path="/billing" element={<Billing />} />

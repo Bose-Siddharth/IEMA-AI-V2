@@ -24,6 +24,7 @@ from routers.admin_routes import router as admin_router
 from routers.uploads_routes import router as uploads_router
 from routers.studio_routes import router as studio_router
 from routers.career_routes import router as career_router
+from routers.builder_routes import router as builder_router
 from middleware.data_lake_middleware import DataLakeMiddleware
 from services.data_lake import ensure_events_indexes
 
@@ -53,6 +54,7 @@ api_router.include_router(admin_router)
 api_router.include_router(uploads_router)
 api_router.include_router(studio_router)
 api_router.include_router(career_router)
+api_router.include_router(builder_router)
 
 # Stripe webhook needs to be at /api/webhook/stripe (root-of-api)
 from routers.payments_routes import stripe_webhook

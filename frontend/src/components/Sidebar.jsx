@@ -6,7 +6,7 @@ import {
   MessageSquare, Sparkles, BarChart3, Wallet, CreditCard, Bell,
   User as UserIcon, Settings, Shield, PanelLeft, PanelLeftClose,
   Briefcase, Rocket, FileText, GraduationCap, MessagesSquare, Users, Lock, Plus, LogOut,
-  Sun, Moon, Monitor, FlaskConical, Heart, Award, MapPin, Wrench
+  Sun, Moon, Monitor, FlaskConical, Heart, Award, MapPin, Wrench, Code2
 } from 'lucide-react';
 import { NAV } from '@/constants/testIds';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 const primaryNav = [
   { to: '/chat', label: 'AI Workspace', Icon: MessageSquare, tid: NAV.linkChat },
   { to: '/studio', label: 'AI Studio', Icon: Sparkles, tid: 'nav-studio' },
+  { to: '/builder', label: 'Code Builder', Icon: Code2, tid: 'nav-builder' },
   { to: '/career', label: 'Career Intelligence', Icon: Briefcase, tid: 'nav-career' },
   { to: '/usage', label: 'Usage', Icon: BarChart3, tid: NAV.linkUsage },
   { to: '/wallet', label: 'Credit Wallet', Icon: Wallet, tid: NAV.linkWallet },

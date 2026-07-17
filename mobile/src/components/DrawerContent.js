@@ -5,7 +5,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import {
   MessageSquare, BarChart3, Wallet, CreditCard, Bell, User, Settings,
   LogOut, Sparkles, Lock, Briefcase, Rocket, FlaskConical, GraduationCap,
-  FileText, MessagesSquare, Heart, Award, MapPin, Wrench
+  FileText, MessagesSquare, Heart, Award, MapPin, Wrench, Code2
 } from 'lucide-react-native';
 import { colors, spacing, radii, fontSize } from '../theme';
 import { logout } from '../store/slices/authSlice';
@@ -13,6 +13,7 @@ import { logout } from '../store/slices/authSlice';
 const primary = [
   { label: 'AI Workspace', Icon: MessageSquare, screen: 'AI Workspace' },
   { label: 'AI Studio', Icon: Sparkles, screen: 'AI Studio' },
+  { label: 'Code Builder', Icon: Code2, screen: 'Code Builder' },
   { label: 'Career Intelligence', Icon: Briefcase, screen: 'Career Intelligence' },
   { label: 'Usage', Icon: BarChart3, screen: 'Usage' },
   { label: 'Credit Wallet', Icon: Wallet, screen: 'Wallet' },
