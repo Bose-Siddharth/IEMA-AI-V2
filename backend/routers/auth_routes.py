@@ -80,6 +80,7 @@ async def register(req: RegisterRequest, request: Request):
         name=req.name,
         password_hash=hash_password(req.password),
         provider="email",
+        plan="free",
         email_verified=False,
         last_login_at=now_iso(),
     )

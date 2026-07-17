@@ -58,6 +58,22 @@ Build IEMA.ai v2 as a complete, production-ready AI Super Platform from scratch 
 - **Mobile `BuilderScreen.js`** — list + create + refine + open-share-URL.
 - **Iteration 9 tests**: 25/25 backend + 8/8 UI passing.
 
+### Phase 6 — Batch B: Central Pricing Engine + Admin v2 + Continuous KB (2026-02-17)
+- **Pricing Engine** (`services/pricing_engine.py`) — dynamic, Mongo-driven:
+  - `pricing_col` — 13 seed services with per-call credit costs (admin-editable)
+  - `plans_col` — 3 tiers: Free (one-time, 25 credits total, 4h window, 15/window) · Pro (500/mo, 5h, 80/window, ₹299) · Team (2000/mo, 6h, 300/window, ₹999). Admin-editable.
+  - `usage_col` — per-call spend record (drives all analytics dashboards)
+  - `spend()` — one atomic call for: resolve price → window check → wallet deduct → provider tracking + KB-hit awareness (skip_charge=True)
+- **Rolling usage windows** — every AI call enforces plan.window_credits within plan.window_hours. On exhaustion returns 429 with `{message, resets_at, resets_in_ms, cap, used}`.
+- **Capability Manifest** (`services/capability_manifest.py`) — injected into every LLM system prompt (chat, counseling, studio, career). AI now recommends IEMA's `/studio`, `/builder`, `/career`, `/counseling` instead of external competitors.
+- **Multi-social account linking** — `GET /api/auth/me/linked`, `POST /api/auth/me/link`, `DELETE /api/auth/me/link/{provider}`. Supports google/microsoft/apple/github/linkedin. Prevents disconnecting last sign-in method.
+- **Continuous Knowledge Engine** (`services/knowledge_engine.py`) — APScheduler runs every 4h, samples top prompts from KB, harvests summaries from Wikipedia REST + DuckDuckGo Instant Answer (both **free**, no keys), stores as `public_knowledge:{source}` in the retriever. Admin `POST /admin/kb/engine/run` to force a pass.
+- **Admin Dashboard v2** — 6 new tabs: Finance (P&L, expense timeline chart), Providers (pie + table by anthropic/openai/emergent/…), Queries (paginated event log with prompt search + JSON view), Pricing (13 rows, inline editable), Plans (3 cards, all fields editable). Existing Users / Packs / Transactions / Data Lake kept.
+- **UI cleanup** — All per-task credit costs REMOVED from Studio/Career/Builder/Counseling. Usage page adds `usage-window-widget` (progress bar + "resets in Xh Ym").
+- **Free tier semantics** — `.env`: WELCOME_CREDITS 100→50 (one-time on signup), DAILY_CREDITS 20→0 (no auto-refresh). Free plan is one-time only.
+- **Register endpoint** now auto-assigns `plan='free'` on new users.
+- **Iteration 11 tests**: 24/24 backend + all 5 new admin tabs + usage window + credit-hint removal passing. Testing agent fixed one critical bug (misplaced return in admin_routes) in-place.
+
 ### Phase 5 — Batch A: Data-Lake-First AI (2026-02-17)
 - **Knowledge Retriever** (`services/knowledge_retriever.py`) — zero-third-party, Mongo-only. Flow: exact hash → Mongo `$text` search → Jaccard-similarity against admin-configurable threshold. Fires on every AI-generating call (counseling/studio/career/builder). Hit_count + last_used_at tracked per entry.
 - **Settings service** (`services/settings_service.py`) — `app_settings` collection, key/value. Defaults: `kb_similarity_threshold=0.85`, `kb_enabled=true`.
@@ -117,12 +133,14 @@ services/
 
 ## Backlog / Next Actions
 
-### P1 (Batch B — starting now)
-- **Mobile IAP** — Google Play + Apple App Store receipt validation on backend + Expo `react-native-iap` UI. **Requires from user**: Google Play service-account JSON + Apple App Store shared secret.
-- **Admin Pricing Excel** — generate `.xlsx` summarizing API costs, credit economics, tier pricing (admin download).
+### P1 (Batch B — WAITING FOR API KEYS FROM USER)
+- **Multi-social sign-in expansion** — backend `linked_accounts` infra is DONE. Need frontend Profile UI + Apple/Google/Microsoft OAuth-link buttons + **LinkedIn OAuth** (need Client ID/Secret from linkedin.com/developers) + **GitHub OAuth** (Client ID/Secret from github.com/settings/developers).
+- **Mobile IAP** — Google Play + Apple App Store receipt validation. Need: Apple App Store shared secret + Google Play service-account JSON.
+- **Stripe Subscriptions** — I have Stripe test key already. Need user's OK on the 3-plan pricing (Free 25 one-time / Pro ₹299/mo / Team ₹999/mo) or their preferred numbers.
+- **Admin Pricing Excel** — .xlsx export with API costs + credit economics + tier pricing (openpyxl already installed).
 
 ### P2 (Endgame — 0 third-party dependency)
-- **Continuous Knowledge Engine** — nightly worker samples KB prompts, crawls free public sources (Wikipedia, DuckDuckGo, RSS, arXiv abstracts), and enriches the data lake without any paid API.
+- **Continuous Knowledge Engine** — DONE. Runs every 4h. Wikipedia + DuckDuckGo. Admin can force-run.
 
 ### P0 (before app store submission)
 - Paste real `RESEND_API_KEY` from resend.com so verify/reset emails actually send

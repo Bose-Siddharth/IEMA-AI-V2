@@ -219,7 +219,7 @@ export function PricingPanel() {
               <td className="px-3 py-2 text-xs">{it.provider}</td>
               <td className="px-3 py-2">
                 <Input
-                  type="number" step="0.5" min="0"
+                  type="number" step="0.5" min="0" max="10000"
                   value={edits[it.service_key] ?? it.credit_cost}
                   onChange={(e) => setEdits({ ...edits, [it.service_key]: e.target.value })}
                   className="h-8 text-sm"
@@ -296,7 +296,7 @@ function PlanField({ label, value, onChange, testid }) {
   return (
     <div>
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input type="number" value={value} onChange={(e) => onChange(e.target.value)} className="h-8 mt-1 text-sm" data-testid={testid} />
+      <Input type="number" min="0" value={value} onChange={(e) => onChange(e.target.value)} className="h-8 mt-1 text-sm" data-testid={testid} />
     </div>
   );
 }

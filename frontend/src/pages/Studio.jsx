@@ -109,8 +109,6 @@ function ImageGen() {
   const [loading, setLoading] = useState(false);
   const dispatch = useDispatch();
 
-  const baseCost = 10 * n * (quality === 'high' ? 4 : quality === 'medium' ? 2 : 1);
-
   const run = async () => {
     if (prompt.trim().length < 3) return toast.error('Provide a prompt');
     setLoading(true); setImages([]);
