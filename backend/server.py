@@ -27,6 +27,9 @@ from routers.career_routes import router as career_router
 from routers.builder_routes import router as builder_router
 from routers.counseling_routes import router as counseling_router
 from middleware.data_lake_middleware import DataLakeMiddleware
+from middleware.security import SecurityHeadersMiddleware, AdminHMACMiddleware, limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 from services.data_lake import ensure_events_indexes
 from services.knowledge_retriever import ensure_kb_indexes
 from services.pricing_engine import seed_defaults as seed_pricing, ensure_indexes as ensure_pricing_indexes
@@ -68,6 +71,10 @@ api_router.add_api_route("/webhook/stripe", stripe_webhook, methods=["POST"], in
 app.include_router(api_router)
 
 app.add_middleware(DataLakeMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(AdminHMACMiddleware)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

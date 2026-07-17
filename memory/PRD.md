@@ -58,6 +58,20 @@ Build IEMA.ai v2 as a complete, production-ready AI Super Platform from scratch 
 - **Mobile `BuilderScreen.js`** — list + create + refine + open-share-URL.
 - **Iteration 9 tests**: 25/25 backend + 8/8 UI passing.
 
+### Phase 8 — Batch D: Payments + Admin CRUD + Security (2026-02-17)
+- **Razorpay Subscriptions (web)**: `services/payments_service.py` auto-creates Razorpay Plans from Mongo `plans` (INR currency, ₹85/USD). `POST /api/payments/subscribe/{plan_id}` returns `short_url` — verified live: creates real Razorpay subscription (id `sub_TEZMBoM3E1brb5`). Webhook `POST /api/payments/webhook/razorpay-subscription` HMAC-verified, credits wallet on `subscription.charged`.
+- **Apple IAP** `POST /api/payments/iap/apple/verify` — validates receipt against verifyReceipt (prod → sandbox fallback), idempotent by transaction_id.
+- **Google Play IAP** `POST /api/payments/iap/google/verify` — service account JSON downloaded to `/app/backend/credentials/google-play-sa.json`, uses `androidpublisher` v3.
+- **All three payment sources** call a single `_credit_plan(user, plan, source, ref)` which assigns plan + adds monthly credits + writes to `subscriptions` collection.
+- **Admin visibility**: new `Subscriptions` tab shows every transaction with email/plan/source/status/credits/date.
+- **Admin Plan CRUD UI**: New-plan modal + Delete button on non-free plans (Free is protected server-side too).
+- **Admin Discount CRUD UI**: full table + new/delete flow.
+- **Clean reseed**: removed old ₹-priced plans; now Pro $19.99/mo · Pro Annual $199.99 · Team $49.99/mo · Team Annual $499.99 · Free 25 credits one-time.
+- **Charge on KB hits**: removed `skip_charge` — users pay regardless of source. UX unchanged (cache language already hidden).
+- **Security**: `SecurityHeadersMiddleware` (HSTS/X-Frame-Options DENY/nosniff/Referrer-Policy/Permissions-Policy), `slowapi` rate limits (login 10/min, register 5/hour), optional `AdminHMACMiddleware` (activate by setting `ADMIN_HMAC_SECRET` in .env).
+- **Mobile Settings** now has AI provider picker (IEMA/Claude/OpenAI) mirroring web.
+- **Env**: `GOOGLE_PLAY_SA_JSON`, `GOOGLE_PLAY_PACKAGE=com.iemaai.app` added.
+
 ### Phase 7 — Batch C: Social+Provider+Discounts+Endgame Toggle (2026-02-17)
 - **LinkedIn OAuth** (`POST /api/auth/linkedin`) + **GitHub OAuth** (`POST /api/auth/github`) — OpenID Connect flow. Both wired into login page with proper icons.
 - **AI Provider selector** (`services/provider_selector.py`) — per-user `ai_provider` field: `iema` (KB → random Claude/OpenAI) · `claude` · `openai`. New Settings section for users to choose. Every LLM call now records the actual provider — admin Providers dashboard shows both anthropic and openai side-by-side.

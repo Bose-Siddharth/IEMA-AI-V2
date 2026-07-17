@@ -478,6 +478,15 @@ async def admin_delete_discount(code: str, admin: User = Depends(require_admin))
     return {"ok": True}
 
 
+# --- Admin subscriptions view ---
+from services.payments_service import list_subscriptions as _list_subs
+
+
+@router.get("/subscriptions")
+async def admin_subscriptions(limit: int = 100, skip: int = 0, admin: User = Depends(require_admin)):
+    return await _list_subs(limit=limit, skip=skip)
+
+
 class DiscountValidateReq(BaseModel):
     code: str
     base_usd: float

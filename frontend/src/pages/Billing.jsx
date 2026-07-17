@@ -110,7 +110,10 @@ export default function Billing() {
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-72 rounded-2xl" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <>
+          <SubscribeSection />
+          <h2 className="font-display text-2xl font-medium mt-12 mb-4">Top-up packs</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {packs.map((p) => (
             <div key={p.slug}
               data-testid={BILLING.packCard}
@@ -140,6 +143,7 @@ export default function Billing() {
             </div>
           ))}
         </div>
+        </>
       )}
 
       <div className="mt-10 rounded-xl border border-border bg-[hsl(var(--surface))] p-6 flex items-start gap-4">
@@ -158,5 +162,47 @@ function FeatureItem({ children }) {
       <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />
       <span className="text-muted-foreground">{children}</span>
     </li>
+  );
+}
+
+function SubscribeSection() {
+  const [plans, setPlans] = useState([]);
+  const [busy, setBusy] = useState(null);
+  useEffect(() => {
+    api.get('/packs/').catch(() => {});
+    // Public plans list — fetch through admin endpoint via authenticated call
+    api.get('/admin/plans').then(r => setPlans((r.data.items || []).filter(p => !p.is_free))).catch(() => {});
+  }, []);
+  const subscribe = async (plan_id) => {
+    setBusy(plan_id);
+    try {
+      const { data } = await api.post(`/payments/subscribe/${plan_id}`);
+      if (data.short_url) window.location.href = data.short_url;
+      else toast.error('No checkout URL returned');
+    } catch (e) { toast.error(e.response?.data?.detail || 'Subscribe failed'); }
+    finally { setBusy(null); }
+  };
+  if (plans.length === 0) return null;
+  return (
+    <div>
+      <h2 className="font-display text-2xl font-medium mb-4">Recurring plans</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="billing-subscribe-section">
+        {plans.map((p) => (
+          <div key={p.plan_id} className="rounded-2xl border border-border bg-card p-6 flex flex-col">
+            <div className="text-xs uppercase tracking-wider text-primary">{p.billing_period}</div>
+            <div className="font-display text-xl font-medium mt-1">{p.name}</div>
+            <div className="mt-2 text-3xl font-medium">${p.price_usd}<span className="text-sm text-muted-foreground font-normal"> / {p.billing_period === 'annual' ? 'year' : 'month'}</span></div>
+            <ul className="mt-4 space-y-1.5 flex-1">
+              <FeatureItem>{p.monthly_credits} credits / {p.billing_period === 'annual' ? 'year' : 'month'}</FeatureItem>
+              <FeatureItem>{p.window_credits} credits per {p.window_hours}h window</FeatureItem>
+              <FeatureItem>All AI modules</FeatureItem>
+            </ul>
+            <Button className="mt-4 w-full" onClick={() => subscribe(p.plan_id)} disabled={busy === p.plan_id} data-testid={`billing-subscribe-${p.plan_id}`}>
+              {busy === p.plan_id ? 'Opening…' : 'Subscribe'}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
+from middleware.security import limiter
 from bson import ObjectId
 from pydantic import BaseModel
 from models import (
@@ -75,6 +76,7 @@ def _user_to_public(user: User) -> UserPublic:
 
 
 @router.post("/register", response_model=dict)
+@limiter.limit("5/hour")
 async def register(req: RegisterRequest, request: Request):
     existing = await users_col.find_one({"email": req.email.lower()})
     if existing:
@@ -108,6 +110,7 @@ async def register(req: RegisterRequest, request: Request):
 
 
 @router.post("/login", response_model=dict)
+@limiter.limit("10/minute")
 async def login(req: LoginRequest, request: Request):
     doc = await users_col.find_one({"email": req.email.lower()})
     if not doc:
