@@ -12,6 +12,8 @@ import { logout } from '../store/slices/authSlice';
 
 const primary = [
   { label: 'AI Workspace', Icon: MessageSquare, screen: 'AI Workspace' },
+  { label: 'AI Studio', Icon: Sparkles, screen: 'AI Studio' },
+  { label: 'Career Intelligence', Icon: Briefcase, screen: 'Career Intelligence' },
   { label: 'Usage', Icon: BarChart3, screen: 'Usage' },
   { label: 'Credit Wallet', Icon: Wallet, screen: 'Wallet' },
   { label: 'Billing', Icon: CreditCard, screen: 'Billing' },
@@ -21,7 +23,6 @@ const primary = [
 ];
 
 const comingSoon = [
-  { label: 'Career Intelligence', Icon: Briefcase },
   { label: 'Startup Intelligence', Icon: Rocket },
   { label: 'Research Intelligence', Icon: FlaskConical },
   { label: 'Dynamic Course Engine', Icon: GraduationCap },

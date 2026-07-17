@@ -22,6 +22,10 @@ from routers.payments_routes import router as payments_router
 from routers.notifications_routes import router as notifications_router
 from routers.admin_routes import router as admin_router
 from routers.uploads_routes import router as uploads_router
+from routers.studio_routes import router as studio_router
+from routers.career_routes import router as career_router
+from middleware.data_lake_middleware import DataLakeMiddleware
+from services.data_lake import ensure_events_indexes
 
 app = FastAPI(title="IEMA.ai v2 API", version="2.0.0")
 
@@ -47,12 +51,16 @@ api_router.include_router(payments_router)
 api_router.include_router(notifications_router)
 api_router.include_router(admin_router)
 api_router.include_router(uploads_router)
+api_router.include_router(studio_router)
+api_router.include_router(career_router)
 
 # Stripe webhook needs to be at /api/webhook/stripe (root-of-api)
 from routers.payments_routes import stripe_webhook
 api_router.add_api_route("/webhook/stripe", stripe_webhook, methods=["POST"], include_in_schema=False)
 
 app.include_router(api_router)
+
+app.add_middleware(DataLakeMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -84,6 +92,7 @@ DEFAULT_PACKS = [
 @app.on_event("startup")
 async def startup():
     await ensure_indexes()
+    await ensure_events_indexes()
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "")

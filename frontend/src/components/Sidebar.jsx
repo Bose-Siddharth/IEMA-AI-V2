@@ -16,6 +16,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 const primaryNav = [
   { to: '/chat', label: 'AI Workspace', Icon: MessageSquare, tid: NAV.linkChat },
+  { to: '/studio', label: 'AI Studio', Icon: Sparkles, tid: 'nav-studio' },
+  { to: '/career', label: 'Career Intelligence', Icon: Briefcase, tid: 'nav-career' },
   { to: '/usage', label: 'Usage', Icon: BarChart3, tid: NAV.linkUsage },
   { to: '/wallet', label: 'Credit Wallet', Icon: Wallet, tid: NAV.linkWallet },
   { to: '/billing', label: 'Billing', Icon: CreditCard, tid: NAV.linkBilling },
@@ -25,7 +27,6 @@ const primaryNav = [
 ];
 
 const comingSoon = [
-  { label: 'Career Intelligence', Icon: Briefcase },
   { label: 'Startup Intelligence', Icon: Rocket },
   { label: 'Research Intelligence', Icon: FlaskConical },
   { label: 'Dynamic Course Engine', Icon: GraduationCap },

@@ -14,6 +14,8 @@ import BillingScreen from '../screens/BillingScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
+import StudioScreen from '../screens/StudioScreen';
+import CareerScreen from '../screens/CareerScreen';
 import DrawerContent from '../components/DrawerContent';
 
 const Stack = createNativeStackNavigator();
@@ -45,6 +47,8 @@ function AppDrawer() {
       screenOptions={{ headerShown: false, drawerType: 'front' }}
     >
       <Drawer.Screen name="AI Workspace" component={ChatStack} />
+      <Drawer.Screen name="AI Studio" component={StudioScreen} />
+      <Drawer.Screen name="Career Intelligence" component={CareerScreen} />
       <Drawer.Screen name="Usage" component={UsageScreen} />
       <Drawer.Screen name="Wallet" component={WalletScreen} />
       <Drawer.Screen name="Billing" component={BillingScreen} />

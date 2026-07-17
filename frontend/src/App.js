@@ -20,6 +20,8 @@ import Notifications from '@/pages/Notifications';
 import Profile from '@/pages/Profile';
 import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
+import Studio from '@/pages/Studio';
+import Career from '@/pages/Career';
 
 function App() {
   return (
@@ -39,6 +41,8 @@ function App() {
 
             <Route element={<AppLayout />}>
               <Route path="/chat" element={<Chat />} />
+              <Route path="/studio" element={<Studio />} />
+              <Route path="/career" element={<Career />} />
               <Route path="/usage" element={<Usage />} />
               <Route path="/wallet" element={<Wallet />} />
               <Route path="/billing" element={<Billing />} />
