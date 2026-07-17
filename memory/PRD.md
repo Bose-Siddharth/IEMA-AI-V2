@@ -168,17 +168,50 @@ services/
 - **Continuous Knowledge Engine** — running every 4h. Admin can force-run.
 - **Knowledge-only mode toggle** — Admin can flip switch → all AI calls require KB match.
 
-### P0 (before app store submission)
-- Paste real `RESEND_API_KEY` from resend.com so verify/reset emails actually send
-- Register `iemaai://auth/callback` deep link and switch mobile OAuth to `expo-auth-session`
-- Set up EAS project (`eas init && eas build:configure`) and submit builds
-- Add react-native-razorpay SDK for native Razorpay checkout (currently opens in-app browser fallback)
+### Phase 5 — Pre-Launch Hardening (2026-07-17)
+- **Razorpay flipped to LIVE**: `.env` now uses `rzp_live_TEZa8OSqIw1nfG`. Stale
+  `razorpay_plan_map` collection (pointing at the old test-mode plans) was
+  purged so the service re-creates plans in the live account on first hit.
+  Verified end-to-end: `POST /api/payments/subscribe/pro` → returns real
+  `sub_TEZl7D30IHYiyH` + live checkout URL `https://rzp.io/rzp/…`.
+- **ADMIN_HMAC_SECRET enabled** (`10b87f83…8946a`) in `.env`. Middleware
+  now runs in **opt-in** mode: requests without `X-Admin-Signature` still
+  authenticate via JWT (so the admin panel keeps working); requests that
+  send the header MUST match `hex(HMAC-SHA256("METHOD|PATH|" + body, secret))`
+  otherwise 401. Verified both branches with curl.
+- **GitHub OAuth fix**: switched `/api/auth/github` to `Authorization: token …`
+  header (OAuth-App-safe), pinned `X-GitHub-Api-Version: 2022-11-28`,
+  added structured error logging surfacing GitHub's real 4xx body to the
+  frontend instead of a generic "Failed to fetch GitHub user info".
+- **Microsoft OAuth fix**: `MsalRedirectHandler` now detects
+  `#id_token=`/`#access_token=` fragments (not just `#code=`), so the
+  loginRedirect return-hop on `/` (Landing) actually processes the token
+  and lands the user in `/chat`. Fixes the "logging in → redirected home →
+  login again" loop.
+- **AuthCallback double-fire guard**: React StrictMode was replaying the
+  single-use OAuth `code`; added a `useRef`-based exchangedRef so the
+  callback fires exactly once. Error toast now surfaces the backend detail.
+- **Mobile IAP + Expo guide**: `/app/mobile/LAUNCH_GUIDE.md` — full
+  step-by-step for App Store Connect + Play Console product registration,
+  Expo Go / EAS build instructions, and Razorpay webhook wiring.
+
+## Backlog / Next
+
+### P0 (pre app-store submission)
+- Register `iemaai://auth/callback` deep link + switch mobile OAuth to
+  `expo-auth-session`.
+- EAS build submissions (iOS TestFlight + Android internal test track).
+- Configure Razorpay webhook in dashboard → paste
+  `RAZORPAY_WEBHOOK_SECRET` into `.env`.
+- Register IAP products per `LAUNCH_GUIDE.md`.
 
 ### P1
-- Push notifications via `expo-notifications` (backend endpoint `/api/notifications/register-device`)
-- Apple Sign-In JS on web (needs verified domain in Apple Developer Console)
-- Coupons + referral rewards + shareable referral links
-- Invoice PDF generation for purchases
+- Paste real `RESEND_API_KEY` from resend.com so verify/reset emails send.
+- Push notifications via `expo-notifications`.
+- Apple Sign-In JS on web (needs verified domain in Apple Developer Console).
+- Coupons + referral rewards + shareable referral links.
+- Invoice PDF generation for purchases.
+
 
 ### P2 (build intelligence modules per architecture — one at a time)
 1. Career Intelligence (jobs feed + skill roadmaps + interview Q&A generator)

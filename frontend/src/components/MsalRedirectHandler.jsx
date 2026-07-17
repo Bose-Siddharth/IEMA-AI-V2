@@ -19,7 +19,12 @@ export default function MsalRedirectHandler() {
         if (!cfg?.microsoft?.enabled || !cfg.microsoft?.client_id) return;
         if (cancelled) return;
         const pending = (() => { try { return sessionStorage.getItem('iema_msal_pending'); } catch { return null; } })();
-        const hasHashCode = window.location.hash?.includes('code=') || window.location.hash?.includes('error=');
+        const hasHashCode = !!(window.location.hash && (
+          window.location.hash.includes('code=') ||
+          window.location.hash.includes('id_token=') ||
+          window.location.hash.includes('access_token=') ||
+          window.location.hash.includes('error=')
+        ));
         if (!pending && !hasHashCode) return; // No pending redirect to handle
         const msal = new PublicClientApplication({
           auth: {

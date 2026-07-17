@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '@/lib/api';
 import { useDispatch } from 'react-redux';
@@ -11,8 +11,14 @@ export default function AuthCallback() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const [error, setError] = useState(null);
+  const exchangedRef = useRef(false);
 
   useEffect(() => {
+    // Guard against React StrictMode double-invocation which would replay
+    // the single-use OAuth code and cause the second exchange to fail.
+    if (exchangedRef.current) return;
+    exchangedRef.current = true;
+
     const code = params.get('code');
     const state = params.get('state');
     const err = params.get('error');
@@ -27,7 +33,7 @@ export default function AuthCallback() {
         navigate('/chat', { replace: true });
       } catch (e) {
         setError(e.response?.data?.detail || 'OAuth failed');
-        toast.error('OAuth failed');
+        toast.error(e.response?.data?.detail || 'OAuth failed');
         setTimeout(() => navigate('/login'), 2000);
       }
     })();

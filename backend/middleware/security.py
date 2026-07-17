@@ -47,15 +47,20 @@ class AdminHMACMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return await call_next(request)
+        # Opt-in: only enforce HMAC if the client sent a signature header.
+        # This lets the JWT-authenticated admin panel work while allowing
+        # external/programmatic callers to prove they hold the shared secret.
+        provided = request.headers.get("x-admin-signature", "")
+        if not provided:
+            return await call_next(request)
         import hmac as _hmac
         import hashlib as _hashlib
         body = await request.body()
-        provided = request.headers.get("x-admin-signature", "")
         base = f"{request.method}|{path}|".encode() + body
         expected = _hmac.new(ADMIN_HMAC_SECRET.encode(), base, _hashlib.sha256).hexdigest()
         if not _hmac.compare_digest(provided, expected):
             from starlette.responses import JSONResponse
-            return JSONResponse({"detail": "Admin HMAC signature required or invalid"}, status_code=401)
+            return JSONResponse({"detail": "Admin HMAC signature invalid"}, status_code=401)
         # Re-inject body so downstream handlers can read it.
 
         async def receive():

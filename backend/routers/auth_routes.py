@@ -466,13 +466,23 @@ async def github_oauth(req: OAuthCodeRequest, request: Request):
             logger.error(f"GitHub token exchange failed: {token_res.text}")
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "GitHub token exchange failed")
         tokens = token_res.json()
-        access_token = tokens.get("access_token")
+        access_token = (tokens.get("access_token") or "").strip()
         if not access_token:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, tokens.get("error_description", "No access token from GitHub"))
-        h = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "User-Agent": "iema-ai"}
+            err = tokens.get("error_description") or tokens.get("error") or "No access token from GitHub"
+            logger.error(f"GitHub token exchange returned no access_token: {tokens}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
+        # GitHub OAuth Apps historically prefer `token <token>` over `Bearer`.
+        # X-GitHub-Api-Version pins a stable schema.
+        h = {
+            "Authorization": f"token {access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "iema-ai",
+        }
         user_res = await http.get("https://api.github.com/user", headers=h)
         if user_res.status_code != 200:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Failed to fetch GitHub user info")
+            logger.error(f"GitHub /user failed status={user_res.status_code} body={user_res.text[:300]}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"GitHub /user error ({user_res.status_code}): {user_res.text[:120]}")
         info = user_res.json()
         # Emails may need a separate call if primary is private
         email = (info.get("email") or "").lower()
@@ -482,6 +492,8 @@ async def github_oauth(req: OAuthCodeRequest, request: Request):
                 for e in emails_res.json():
                     if e.get("primary") and e.get("verified"):
                         email = (e.get("email") or "").lower(); break
+            else:
+                logger.error(f"GitHub /user/emails failed status={emails_res.status_code} body={emails_res.text[:300]}")
         if not email:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No verified email on your GitHub account")
     name = info.get("name") or info.get("login") or email.split("@")[0]
