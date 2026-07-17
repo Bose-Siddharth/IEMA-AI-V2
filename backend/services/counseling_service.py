@@ -36,8 +36,7 @@ SYSTEM_PROMPTS = {
 
 
 async def counsel(mode: str, message: str, user_id: Optional[str] = None) -> dict:
-    """Return {response, source, score, match, disclaimer}."""
-    mode = mode if mode in SYSTEM_PROMPTS else "career"
+    """Return {response, source, score, match, disclaimer}. Assumes `mode` is validated by the router."""
     kind = f"counseling:{mode}"
 
     if await get_setting("kb_enabled", True):

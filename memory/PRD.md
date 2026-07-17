@@ -47,6 +47,25 @@ Build IEMA.ai v2 as a complete, production-ready AI Super Platform from scratch 
 
 ### Phase 4 — Code Builder (2026-02-17)
 - **Endpoints** under `/api/builder/*`:
+  - `POST /projects` — LLM generates full multi-file project JSON in a single call (Claude Haiku 4.5). Cost **15 credits**, cached by (user_id + prompt hash).
+  - `GET /projects` + `GET /projects/{id}` — list + full detail
+  - `PATCH /projects/{id}/files` — manual edit, **FREE**
+  - `POST /projects/{id}/refine` — apply an AI edit to the full file set. Cost **8 credits**.
+  - `GET /projects/{id}/preview` — server-composed self-contained HTML (inlines sibling CSS/JS)
+  - `POST /projects/{id}/share` — publishes to S3 with 7-day signed URL; overwrites existing share_key on each call
+  - `POST /projects/{id}/github/push` — pushes every file to `owner/repo` via GitHub Contents API. PAT stored **encrypted (Fernet)** in `users.github_pat` and validated pre-save.
+- **Frontend `/builder`** — 3-pane layout (projects list | file tabs + editor | live iframe preview via `srcDoc`).
+- **Mobile `BuilderScreen.js`** — list + create + refine + open-share-URL.
+- **Iteration 9 tests**: 25/25 backend + 8/8 UI passing.
+
+### Phase 5 — Batch A: Data-Lake-First AI (2026-02-17)
+- **Knowledge Retriever** (`services/knowledge_retriever.py`) — zero-third-party, Mongo-only. Flow: exact hash → Mongo `$text` search → Jaccard-similarity against admin-configurable threshold. Fires on every AI-generating call (counseling/studio/career/builder). Hit_count + last_used_at tracked per entry.
+- **Settings service** (`services/settings_service.py`) — `app_settings` collection, key/value. Defaults: `kb_similarity_threshold=0.85`, `kb_enabled=true`.
+- **Wired retrieve-first flow into:** Studio Summarize, Career Learning Path, Builder Create — each now returns `source: 'kb' | 'llm'` and skips credit deduction on cache hits.
+- **Counseling module** (`/api/counseling` + `/counseling` web + drawer on mobile) — 3 modes (career / psychology / academic) with specialized system prompts. Psychology mode always returns iCall India helpline in disclaimer. 3 credits per fresh LLM answer, 0 on KB hit.
+- **Template Gallery** — 6 hand-crafted single-file HTML apps (todo, pomodoro, calculator, dev portfolio, SaaS landing, weather) auto-seeded on backend startup. **Public endpoints** `/api/builder/templates`, `/api/builder/templates/{slug}`, `/api/builder/templates/{slug}/preview` require NO auth (marketing use). `POST /api/builder/templates/{slug}/use` (auth) clones to user's projects at 0 credits. Landing page shows a live iframe gallery with template picker + CTA.
+- **Admin Data Lake tab** — new tab on `/admin` showing KB stats (total entries, all-time hits, breakdown by kind) + threshold slider (0–1) + enable toggle. Changes are logged to the data lake (`admin_setting_updated` event) for audit.
+- **Iteration 10 tests**: 20/20 backend + 12/12 UI passing. Retrieve-first verified across all 4 AI kinds. Non-admin users correctly 403 on `/admin/kb/*`.
   - `POST /projects` — LLM generates full multi-file project JSON in a single call (Claude Haiku 4.5). Cost **15 credits**, **cached by (user_id + prompt hash)** for free re-generation.
   - `GET /projects` + `GET /projects/{id}` — list + full detail
   - `PATCH /projects/{id}/files` — manual edit, **FREE**
@@ -98,10 +117,12 @@ services/
 
 ## Backlog / Next Actions
 
-### P1 (next batch — awaiting user go-ahead)
-- **Counseling Module** (Career + Psychology AI chat) — pure LLM, specialized system prompts, first queries the Data Lake for user's own past context.
-- **Mobile IAP** — Google Play + Apple App Store receipt validation on backend + Expo `react-native-iap` UI. Requires user-provided Google Play service account JSON + Apple App Store shared secret.
-- **Admin Pricing Excel** — generate `.xlsx` summarizing API costs, credit economics, tier pricing (available for admin download).
+### P1 (Batch B — starting now)
+- **Mobile IAP** — Google Play + Apple App Store receipt validation on backend + Expo `react-native-iap` UI. **Requires from user**: Google Play service-account JSON + Apple App Store shared secret.
+- **Admin Pricing Excel** — generate `.xlsx` summarizing API costs, credit economics, tier pricing (admin download).
+
+### P2 (Endgame — 0 third-party dependency)
+- **Continuous Knowledge Engine** — nightly worker samples KB prompts, crawls free public sources (Wikipedia, DuckDuckGo, RSS, arXiv abstracts), and enriches the data lake without any paid API.
 
 ### P0 (before app store submission)
 - Paste real `RESEND_API_KEY` from resend.com so verify/reset emails actually send

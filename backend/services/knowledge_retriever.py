@@ -34,7 +34,8 @@ def _normalize(text: str) -> str:
 
 
 def _tokens(text: str) -> set:
-    return {w for w in _WORD.findall((text or "").lower()) if w not in _STOP and len(w) > 2}
+    # Keep >=2-char tech tokens (llm, gpt, aws, sql, seo, iam, ai, ml…) — improves match precision on short-tech prompts.
+    return {w for w in _WORD.findall((text or "").lower()) if w not in _STOP and len(w) >= 2}
 
 
 def _jaccard(a: set, b: set) -> float:

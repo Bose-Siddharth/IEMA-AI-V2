@@ -133,5 +133,12 @@ async def update_setting(req: SettingUpdate, admin: User = Depends(require_admin
             raise HTTPException(400, "value must be a number")
         if req.key == "kb_similarity_threshold" and not (0.0 <= value <= 1.0):
             raise HTTPException(400, "threshold must be between 0 and 1")
+    prev = await get_setting(req.key)
     await set_setting(req.key, value)
+    from services.data_lake import log_event
+    await log_event(
+        "admin_setting_updated",
+        user_id=admin.id,
+        payload={"key": req.key, "prev": prev, "new": value},
+    )
     return {"ok": True, "key": req.key, "value": value}
