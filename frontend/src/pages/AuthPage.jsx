@@ -225,36 +225,24 @@ export default function AuthPage({ mode }) {
     window.location.href = url;
   };
 
-  const microsoftSignIn = async () => {
+  const microsoftSignIn = () => {
     if (!oauthCfg.microsoft?.enabled) { toast.info('Microsoft OAuth not configured'); return; }
-    setLoading(true);
-    try {
-      const msal = getMsal();
-      await msal.initialize();
-      try { await msal.handleRedirectPromise(); } catch { /* ignore */ }
-      // Popup flow: keeps state inside this window, no root-page detour and
-      // no chance of React Router consuming the response fragment.
-      const result = await msal.loginPopup({
-        scopes: ['openid', 'email', 'profile'],
-        prompt: 'select_account',
-      });
-      if (!result?.idToken) throw new Error('No id_token from Microsoft');
-      const { data } = await api.post('/auth/microsoft-verify', { id_token: result.idToken });
-      handleAuthSuccess(data, 'Microsoft');
-    } catch (err) {
-      console.error('[MS] sign-in error:', err);
-      const code = err?.errorCode || '';
-      const msg = err?.errorMessage || err?.message || '';
-      if (code === 'user_cancelled' || msg.includes('user_cancelled') || msg.includes('User cancelled')) return;
-      if (code === 'interaction_in_progress') {
-        clearMsalInteractionState();
-        msalInstance = null;
-        toast.info('Please click Microsoft again — cleared previous session');
-        return;
-      }
-      const detail = err?.response?.data?.detail;
-      toast.error(detail || msg || `Microsoft sign-in failed${code ? ' (' + code + ')' : ''}`);
-    } finally { setLoading(false); }
+    // MSAL popup/redirect proved brittle behind our reverse proxy — fall back
+    // to the plain OAuth 2.0 authorization-code flow that GitHub/LinkedIn use.
+    const redirect_uri = window.location.origin + '/auth/callback';
+    const state = 'microsoft';
+    // 'common' allows any Azure AD tenant + personal MSA accounts. Requires
+    // the Azure app "Supported account types" to include both.
+    const url = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' + new URLSearchParams({
+      client_id: oauthCfg.microsoft.client_id,
+      response_type: 'code',
+      redirect_uri,
+      response_mode: 'query',
+      scope: 'openid email profile offline_access User.Read',
+      state,
+      prompt: 'select_account',
+    }).toString();
+    window.location.href = url;
   };
 
   const appleSignIn = async () => {

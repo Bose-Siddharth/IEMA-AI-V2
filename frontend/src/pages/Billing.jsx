@@ -30,41 +30,16 @@ export default function Billing() {
     setBuying(pack.slug);
     try {
       const { data } = await api.post('/payments/razorpay/order', { pack_slug: pack.slug });
-      if (!window.Razorpay) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-          s.onload = resolve;
-          s.onerror = reject;
-          document.body.appendChild(s);
-        });
+      if (!data.short_url) {
+        toast.error('No checkout URL returned from Razorpay');
+        setBuying(null);
+        return;
       }
-      const options = {
-        key: data.key_id,
-        amount: data.amount,          // INR paise (backend converts USD → INR)
-        currency: data.currency,      // "INR"
-        order_id: data.order_id,
-        name: 'IEMA.ai',
-        description: `${pack.name} — ${data.credits} credits (US$${data.usd_price})`,
-        prefill: { email: user?.email, name: user?.name },
-        theme: { color: '#3B82F6' },
-        handler: async (res) => {
-          try {
-            await api.post('/payments/razorpay/verify', {
-              razorpay_order_id: res.razorpay_order_id,
-              razorpay_payment_id: res.razorpay_payment_id,
-              razorpay_signature: res.razorpay_signature,
-            });
-            toast.success(`${data.credits} credits added to your wallet!`);
-            navigate('/wallet');
-          } catch (e) {
-            toast.error('Payment verification failed');
-          }
-        },
-        modal: { ondismiss: () => setBuying(null) },
-      };
-      const rzp = new window.Razorpay(options);
-      rzp.open();
+      // Redirect the user to the Razorpay-hosted checkout page (rzp.io).
+      // This bypasses the "unauthorized website" block that fires when we
+      // open the Checkout.js modal on our own domain before Razorpay has
+      // approved this domain on the merchant profile.
+      window.location.href = data.short_url;
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to start payment');
       setBuying(null);

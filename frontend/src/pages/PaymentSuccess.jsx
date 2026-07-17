@@ -12,22 +12,22 @@ export default function PaymentSuccess() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const sessionId = params.get('session_id');
-    if (!sessionId) { setStatus('failed'); return; }
+    const linkId = params.get('razorpay_payment_link_id');
+    const sessionId = params.get('session_id');  // legacy Stripe support (removed)
+    if (!linkId && !sessionId) { setStatus('failed'); return; }
     let cancelled = false;
     const poll = async (n = 0) => {
       if (cancelled) return;
       try {
-        const { data } = await api.get(`/payments/stripe/status/${sessionId}`);
+        const url = linkId
+          ? `/payments/razorpay/link-status/${linkId}`
+          : `/payments/stripe/status/${sessionId}`;
+        const { data } = await api.get(url);
         setDetail(data);
-        if (data.payment_status === 'paid') {
-          setStatus('success');
-          return;
-        }
-        if (data.status === 'expired') {
-          setStatus('failed');
-          return;
-        }
+        const paid = data.status === 'paid' || data.payment_status === 'paid';
+        const failed = data.status === 'cancelled' || data.status === 'expired';
+        if (paid) { setStatus('success'); return; }
+        if (failed) { setStatus('failed'); return; }
         if (n >= 8) { setStatus('failed'); return; }
         setAttempts(n + 1);
         setTimeout(() => poll(n + 1), 2000);

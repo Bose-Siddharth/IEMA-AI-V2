@@ -45,20 +45,45 @@ async def _get_pack(slug: str, currency: str = None) -> dict:
 # All Stripe endpoints were removed. Razorpay is the sole web payment provider.
 
 
-# ================= RAZORPAY =================
+# ================= RAZORPAY (Payment Links — domain-agnostic, hosted on rzp.io) =================
 @router.post("/razorpay/order")
-async def create_razorpay_order(req: RazorpayOrderRequest, user: User = Depends(get_current_user)):
+async def create_razorpay_payment_link(req: RazorpayOrderRequest, request: Request, user: User = Depends(get_current_user)):
+    """Creates a Razorpay **Payment Link** (hosted at `rzp.io`) so the checkout
+    page is served on Razorpay's own domain — bypassing the "unauthorized
+    website" block that applies when opening Checkout.js on our own domain
+    before the merchant has approved us as an additional website."""
     if not _razorpay_client:
         raise HTTPException(501, "Razorpay not configured")
-    # Fetch USD-priced pack, convert to INR paise for Razorpay (India merchant).
     pack = await _get_pack(req.pack_slug, "usd")
     price_usd = float(pack["price"])
     amount_paise = int(round(price_usd * USD_TO_INR * 100))
-    order = _razorpay_client.order.create({
+    credits_val = float(pack["credits"] + pack.get("bonus_credits", 0))
+    origin = str(request.headers.get("origin") or request.headers.get("referer") or "").rstrip("/") \
+             or os.environ.get("APP_URL", "").rstrip("/")
+    callback = f"{origin}/payment-success?provider=razorpay"
+    # `reference_id` must be unique per link — used to correlate the webhook /
+    # callback back to a specific transaction row.
+    import uuid
+    # Razorpay requires reference_id to be <= 40 chars
+    ref_id = f"iema_{user.id[-6:]}_{uuid.uuid4().hex[:10]}"
+    link = _razorpay_client.payment_link.create({
         "amount": amount_paise,
         "currency": "INR",
-        "payment_capture": 1,
-        "notes": {"user_id": user.id, "pack_slug": req.pack_slug, "usd_price": str(price_usd)},
+        "accept_partial": False,
+        "reference_id": ref_id,
+        "description": f"IEMA.ai — {pack['name']} ({int(credits_val)} credits, ${price_usd:.2f} USD)",
+        "customer": {
+            "name": user.name or user.email.split("@")[0],
+            "email": user.email,
+        },
+        "notify": {"sms": False, "email": True},
+        "reminder_enable": False,
+        "notes": {
+            "user_id": user.id, "pack_slug": req.pack_slug,
+            "usd_price": str(price_usd), "credits": str(credits_val),
+        },
+        "callback_url": callback,
+        "callback_method": "get",
     })
     tx = PaymentTransaction(
         user_id=user.id,
@@ -66,21 +91,58 @@ async def create_razorpay_order(req: RazorpayOrderRequest, user: User = Depends(
         pack_slug=req.pack_slug,
         amount=price_usd,
         currency="usd",
-        credits=float(pack["credits"] + pack.get("bonus_credits", 0)),
-        order_id=order["id"],
+        credits=credits_val,
+        order_id=link["id"],   # store payment_link_id here
         status="initiated",
         metadata={"user_id": user.id, "pack_slug": req.pack_slug,
-                  "amount_paise": amount_paise, "fx_rate": USD_TO_INR},
+                  "reference_id": ref_id, "amount_paise": amount_paise,
+                  "fx_rate": USD_TO_INR, "short_url": link.get("short_url")},
     )
     await payment_transactions_col.insert_one(tx.to_mongo())
     return {
-        "order_id": order["id"],
+        "payment_link_id": link["id"],
+        "short_url": link.get("short_url"),
+        "reference_id": ref_id,
         "amount": amount_paise,
         "currency": "INR",
         "usd_price": price_usd,
-        "key_id": RAZORPAY_KEY_ID,
-        "credits": tx.credits,
+        "credits": credits_val,
         "pack": pack,
+    }
+
+
+@router.get("/razorpay/link-status/{link_id}")
+async def razorpay_link_status(link_id: str, user: User = Depends(get_current_user)):
+    """Poll the Payment Link status server-side after Razorpay redirects the
+    user back. Idempotently credits the wallet on the first `paid` sighting."""
+    if not _razorpay_client:
+        raise HTTPException(501, "Razorpay not configured")
+    tx_doc = await payment_transactions_col.find_one({"order_id": link_id, "user_id": user.id})
+    if not tx_doc:
+        raise HTTPException(404, "Transaction not found")
+    tx = PaymentTransaction.from_mongo(tx_doc)
+    try:
+        link = _razorpay_client.payment_link.fetch(link_id)
+    except Exception as e:
+        logger.exception(f"payment_link.fetch failed: {e}")
+        raise HTTPException(400, "Failed to fetch payment link")
+    status = link.get("status")  # 'created' | 'partially_paid' | 'paid' | 'cancelled' | 'expired'
+    if status == "paid" and not tx.credited:
+        await add_credits(user.id, tx.credits, bucket="purchased", kind="purchase",
+                          description=f"Purchase: {tx.pack_slug}",
+                          ref_id=link_id)
+        await payment_transactions_col.update_one(
+            {"order_id": link_id},
+            {"$set": {"status": "paid", "credited": True, "updated_at": now_iso()}},
+        )
+        await notify(user.id, "Purchase successful",
+                     f"{int(tx.credits)} credits added to your wallet.", kind="purchase")
+        tx.credited = True
+    return {
+        "status": status,
+        "credited": tx.credited,
+        "credits": tx.credits,
+        "short_url": link.get("short_url"),
     }
 
 
