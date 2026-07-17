@@ -93,3 +93,45 @@ async def list_transactions(admin: User = Depends(require_admin), limit: int = 1
         doc["id"] = str(doc.pop("_id"))
         items.append(doc)
     return {"items": items}
+
+
+# --- Knowledge Bank + Settings ---
+from services.knowledge_retriever import stats as kb_stats_fn
+from services.settings_service import all_settings, set_setting, get_setting, DEFAULTS
+from pydantic import BaseModel
+
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: object
+
+
+@router.get("/kb/stats")
+async def kb_stats(admin: User = Depends(require_admin)):
+    return await kb_stats_fn()
+
+
+@router.get("/settings")
+async def get_settings(admin: User = Depends(require_admin)):
+    current = await all_settings()
+    return {"settings": current, "defaults": DEFAULTS}
+
+
+@router.post("/settings")
+async def update_setting(req: SettingUpdate, admin: User = Depends(require_admin)):
+    if req.key not in DEFAULTS:
+        raise HTTPException(400, f"Unknown setting `{req.key}`")
+    # Type-coerce
+    default_val = DEFAULTS[req.key]
+    value = req.value
+    if isinstance(default_val, bool):
+        value = bool(value)
+    elif isinstance(default_val, float):
+        try:
+            value = float(value)
+        except Exception:
+            raise HTTPException(400, "value must be a number")
+        if req.key == "kb_similarity_threshold" and not (0.0 <= value <= 1.0):
+            raise HTTPException(400, "threshold must be between 0 and 1")
+    await set_setting(req.key, value)
+    return {"ok": True, "key": req.key, "value": value}

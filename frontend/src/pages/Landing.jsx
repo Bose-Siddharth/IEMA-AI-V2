@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import { HOME } from '@/constants/testIds';
+import TemplateGallery from '@/components/TemplateGallery';
 
 const MODULES = [
   {
@@ -86,6 +87,7 @@ export default function Landing() {
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
             <a href="#modules" className="hover:text-foreground">Modules</a>
+            <a href="#templates" className="hover:text-foreground">Templates</a>
             <a href="#pricing" className="hover:text-foreground">Pricing</a>
             <a href="#access" className="hover:text-foreground">Access</a>
           </nav>
@@ -167,6 +169,7 @@ export default function Landing() {
       </section>
 
       {/* Access */}
+      <TemplateGallery />
       <section id="access" className="py-24 border-t border-border bg-[hsl(var(--surface))]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">

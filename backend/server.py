@@ -25,8 +25,10 @@ from routers.uploads_routes import router as uploads_router
 from routers.studio_routes import router as studio_router
 from routers.career_routes import router as career_router
 from routers.builder_routes import router as builder_router
+from routers.counseling_routes import router as counseling_router
 from middleware.data_lake_middleware import DataLakeMiddleware
 from services.data_lake import ensure_events_indexes
+from services.knowledge_retriever import ensure_kb_indexes
 
 app = FastAPI(title="IEMA.ai v2 API", version="2.0.0")
 
@@ -55,6 +57,7 @@ api_router.include_router(uploads_router)
 api_router.include_router(studio_router)
 api_router.include_router(career_router)
 api_router.include_router(builder_router)
+api_router.include_router(counseling_router)
 
 # Stripe webhook needs to be at /api/webhook/stripe (root-of-api)
 from routers.payments_routes import stripe_webhook
@@ -95,6 +98,13 @@ DEFAULT_PACKS = [
 async def startup():
     await ensure_indexes()
     await ensure_events_indexes()
+    await ensure_kb_indexes()
+    # Idempotently seed builder templates
+    try:
+        from scripts.seed_templates import seed as seed_templates
+        await seed_templates()
+    except Exception as e:
+        logger.warning(f"Template seed skipped: {e}")
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "")

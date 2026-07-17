@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users as UsersIcon, MessageSquare, Zap, DollarSign, Search, Shield, ShieldOff, Ban, CheckCircle2, Plus } from 'lucide-react';
+import { Users as UsersIcon, MessageSquare, Zap, DollarSign, Search, Shield, ShieldOff, Ban, CheckCircle2, Plus, Database, Sliders } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -40,11 +40,114 @@ export default function Admin() {
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="packs">Credit Packs</TabsTrigger>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="kb" data-testid="admin-tab-kb">Data Lake</TabsTrigger>
         </TabsList>
         <TabsContent value="users" className="mt-6"><UsersPanel /></TabsContent>
         <TabsContent value="packs" className="mt-6"><PacksPanel /></TabsContent>
         <TabsContent value="transactions" className="mt-6"><TransactionsPanel /></TabsContent>
+        <TabsContent value="kb" className="mt-6"><KnowledgePanel /></TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function KnowledgePanel() {
+  const [stats, setStats] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [threshold, setThreshold] = useState(0.85);
+  const [enabled, setEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    const [s, cfg] = await Promise.all([api.get('/admin/kb/stats'), api.get('/admin/settings')]);
+    setStats(s.data); setSettings(cfg.data);
+    setThreshold(cfg.data.settings.kb_similarity_threshold ?? 0.85);
+    setEnabled(cfg.data.settings.kb_enabled ?? true);
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.post('/admin/settings', { key: 'kb_similarity_threshold', value: threshold });
+      await api.post('/admin/settings', { key: 'kb_enabled', value: enabled });
+      toast.success('Settings saved');
+      load();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Save failed'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="space-y-6" data-testid="admin-kb-panel">
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Database className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-medium">Knowledge Bank Stats</h3>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-xs text-muted-foreground">Total entries</div>
+            <div className="text-2xl font-medium mt-1" data-testid="admin-kb-total-entries">{stats?.total_entries ?? '—'}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Cache hits (all-time)</div>
+            <div className="text-2xl font-medium mt-1 text-emerald-500" data-testid="admin-kb-total-hits">{stats?.total_hits ?? '—'}</div>
+          </div>
+          <div className="col-span-2 md:col-span-2">
+            <div className="text-xs text-muted-foreground mb-2">By kind</div>
+            <div className="space-y-1 text-xs">
+              {stats && Object.entries(stats.by_kind || {}).map(([k, v]) => (
+                <div key={k} className="flex justify-between">
+                  <span className="text-muted-foreground">{k}</span>
+                  <span>{v.count} entries · {v.hits} hits</span>
+                </div>
+              ))}
+              {stats && Object.keys(stats.by_kind || {}).length === 0 && (
+                <span className="text-muted-foreground">No entries yet.</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Sliders className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-medium">Retrieval Settings</h3>
+        </div>
+        <div className="space-y-5">
+          <div>
+            <div className="flex justify-between items-baseline mb-2">
+              <Label className="text-xs">Semantic similarity threshold</Label>
+              <span className="text-sm font-mono" data-testid="admin-kb-threshold-value">{threshold.toFixed(2)}</span>
+            </div>
+            <input
+              type="range" min="0" max="1" step="0.01"
+              value={threshold}
+              onChange={(e) => setThreshold(parseFloat(e.target.value))}
+              className="w-full accent-primary"
+              data-testid="admin-kb-threshold-slider"
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+              <span>Aggressive reuse · saves credits</span>
+              <span>Safer answers · fewer hits</span>
+            </div>
+          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
+              className="w-4 h-4 accent-primary" data-testid="admin-kb-enabled-toggle"
+            />
+            <div>
+              <div className="text-sm">Data Lake retrieval enabled</div>
+              <div className="text-xs text-muted-foreground">Turn off to force all AI calls to hit the LLM.</div>
+            </div>
+          </label>
+          <Button onClick={save} disabled={saving} data-testid="admin-kb-save-btn">
+            {saving ? 'Saving…' : 'Save settings'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

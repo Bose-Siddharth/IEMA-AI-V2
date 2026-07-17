@@ -16,6 +16,8 @@ from db import db, now_iso
 from services.builder_service import (
     generate_project, refine_project, compose_preview_html, builder_projects_col
 )
+from db import db as _db
+builder_templates_col = _db["builder_templates"]
 from services.credit_service import has_credits, deduct_credits
 from services.storage_service import upload_bytes, upload_bytes_at_key, get_signed_url, is_configured
 from services.data_lake import log_event
@@ -80,6 +82,58 @@ async def _load_project(user_id: str, project_id: str) -> dict:
 
 
 # ---- routes -------------------------------------------------------------
+@router.get("/templates")
+async def list_templates():
+    """Public — no auth. Landing-page gallery."""
+    cursor = builder_templates_col.find({}, {"files": 0}).sort("order", 1)
+    items = []
+    async for d in cursor:
+        d["id"] = str(d.pop("_id"))
+        items.append(d)
+    return {"items": items}
+
+
+@router.get("/templates/{slug}")
+async def get_template(slug: str):
+    doc = await builder_templates_col.find_one({"slug": slug})
+    if not doc:
+        raise HTTPException(404, "Template not found")
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+@router.get("/templates/{slug}/preview")
+async def template_preview(slug: str):
+    """Public — used by landing page iframe."""
+    doc = await builder_templates_col.find_one({"slug": slug})
+    if not doc:
+        raise HTTPException(404, "Template not found")
+    html = compose_preview_html(doc.get("files", []))
+    return {"html": html, "name": doc.get("name"), "description": doc.get("description")}
+
+
+@router.post("/templates/{slug}/use")
+async def use_template(slug: str, user: User = Depends(get_current_user)):
+    """Clone a template into the user's projects (FREE — pre-cached)."""
+    tpl = await builder_templates_col.find_one({"slug": slug})
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    doc = {
+        "user_id": user.id,
+        "name": tpl["name"],
+        "description": tpl.get("description", ""),
+        "prompt": f"[template: {slug}]",
+        "files": tpl.get("files", []),
+        "share_key": None,
+        "github": None,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    ins = await builder_projects_col.insert_one(doc)
+    doc["_id"] = ins.inserted_id
+    return {"project": _to_public_project(doc)}
+
+
 @router.get("/projects")
 async def list_projects(user: User = Depends(get_current_user)):
     cursor = builder_projects_col.find(

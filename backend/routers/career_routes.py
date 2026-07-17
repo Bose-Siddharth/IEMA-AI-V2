@@ -43,7 +43,7 @@ async def learning_path(req: LearningPathRequest, user: User = Depends(get_curre
     # Cheap dodge: peek the cache by calling service — service returns cached=True flag.
     if CREDIT_LEARNING_PATH > 0 and not await has_credits(user.id, CREDIT_LEARNING_PATH):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient credits")
-    result = await get_or_generate_learning_path(req.role, req.skills)
+    result = await get_or_generate_learning_path(req.role, req.skills, user_id=user.id)
     # Only deduct when we generated fresh
     if not result.get("cached", False) and CREDIT_LEARNING_PATH > 0:
         wallet = await deduct_credits(user.id, CREDIT_LEARNING_PATH, "ai_usage", "Learning path generation")

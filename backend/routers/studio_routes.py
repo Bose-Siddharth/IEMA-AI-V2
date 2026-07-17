@@ -36,14 +36,22 @@ async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_curre
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, "Insufficient credits")
     try:
         session_id = f"studio-sum-{user.id}-{uuid.uuid4().hex[:8]}"
-        summary = await summarize_text(session_id, req.text, req.style)
-        wallet = await deduct_credits(user.id, CREDIT_COST_SUMMARIZE, "ai_usage", "AI Studio summary")
+        result = await summarize_text(session_id, req.text, req.style, user_id=user.id)
+        summary = result["response"]
+        source = result["source"]
+        credits = 0.0 if source == "kb" else CREDIT_COST_SUMMARIZE
+        balance = None
+        if credits > 0:
+            wallet = await deduct_credits(user.id, credits, "ai_usage", "AI Studio summary")
+            balance = wallet.total
         await log_event(
             "studio_summarize",
             user_id=user.id,
-            payload={"style": req.style, "input_chars": len(req.text), "output_chars": len(summary)},
+            payload={"style": req.style, "input_chars": len(req.text), "output_chars": len(summary),
+                     "source": source, "score": result.get("score")},
         )
-        return {"summary": summary, "credits_used": CREDIT_COST_SUMMARIZE, "balance": wallet.total}
+        return {"summary": summary, "credits_used": credits, "balance": balance,
+                "source": source, "match": result.get("match"), "score": result.get("score")}
     except Exception as e:
         logger.exception("Summarize failed")
         raise HTTPException(500, f"Summarize failed: {str(e)[:200]}")

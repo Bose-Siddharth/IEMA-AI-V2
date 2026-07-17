@@ -17,6 +17,7 @@ import NotificationsScreen from '../screens/NotificationsScreen';
 import StudioScreen from '../screens/StudioScreen';
 import CareerScreen from '../screens/CareerScreen';
 import BuilderScreen from '../screens/BuilderScreen';
+import CounselingScreen from '../screens/CounselingScreen';
 import DrawerContent from '../components/DrawerContent';
 
 const Stack = createNativeStackNavigator();
@@ -50,6 +51,7 @@ function AppDrawer() {
       <Drawer.Screen name="AI Workspace" component={ChatStack} />
       <Drawer.Screen name="AI Studio" component={StudioScreen} />
       <Drawer.Screen name="Code Builder" component={BuilderScreen} />
+      <Drawer.Screen name="Counseling" component={CounselingScreen} />
       <Drawer.Screen name="Career Intelligence" component={CareerScreen} />
       <Drawer.Screen name="Usage" component={UsageScreen} />
       <Drawer.Screen name="Wallet" component={WalletScreen} />

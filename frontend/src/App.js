@@ -23,6 +23,7 @@ import Admin from '@/pages/Admin';
 import Studio from '@/pages/Studio';
 import Career from '@/pages/Career';
 import Builder from '@/pages/Builder';
+import Counseling from '@/pages/Counseling';
 
 function App() {
   return (
@@ -45,6 +46,7 @@ function App() {
               <Route path="/studio" element={<Studio />} />
               <Route path="/career" element={<Career />} />
               <Route path="/builder" element={<Builder />} />
+              <Route path="/counseling" element={<Counseling />} />
               <Route path="/usage" element={<Usage />} />
               <Route path="/wallet" element={<Wallet />} />
               <Route path="/billing" element={<Billing />} />

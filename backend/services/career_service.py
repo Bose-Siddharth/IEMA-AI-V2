@@ -11,6 +11,8 @@ from typing import List, Optional, Dict, Any
 import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from db import db, now_iso
+from services.knowledge_retriever import retrieve, store as kb_store
+from services.settings_service import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +110,23 @@ def _mock_jobs(query: str, location: str) -> Dict[str, Any]:
     return {"count": len(results), "results": results, "source": "mock"}
 
 
-async def get_or_generate_learning_path(role: str, skills: List[str]) -> Dict[str, Any]:
-    """Cache-first learning path generator. Massive credit saver."""
+async def get_or_generate_learning_path(role: str, skills: List[str], user_id: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieve-first learning path generator. Massive credit saver."""
     skills_sorted = sorted([s.lower().strip() for s in skills if s.strip()])
+    prompt_key = f"role={role.strip()} skills={','.join(skills_sorted)}"
+
+    # (1) Data lake first (exact + semantic)
+    if await get_setting("kb_enabled", True):
+        hit = await retrieve("career_learning_path", prompt_key, user_id=user_id)
+        if hit:
+            payload = hit["response"] if isinstance(hit["response"], dict) else {"roadmap_markdown": hit["response"]}
+            return {"cached": True, "source": "kb", "match": hit["match"], "score": hit["score"], **payload}
+
+    # (2) Legacy hash cache (kept for backwards compatibility)
     key = _cache_key("learning_path_v1", role, ",".join(skills_sorted))
     cached = await career_cache_col.find_one({"_id": key})
     if cached:
-        return {"cached": True, **cached.get("payload", {})}
+        return {"cached": True, "source": "cache", **cached.get("payload", {})}
 
     prompt = (
         f"Design a concise, execution-ready learning roadmap for the role: {role}.\n"
@@ -145,4 +157,6 @@ async def get_or_generate_learning_path(role: str, skills: List[str]) -> Dict[st
         {"$set": {"payload": payload, "created_at": now_iso()}},
         upsert=True,
     )
-    return {"cached": False, **payload}
+    await kb_store("career_learning_path", prompt_key, payload, user_id=user_id,
+                   meta={"role": role, "skills": skills_sorted})
+    return {"cached": False, "source": "llm", **payload}

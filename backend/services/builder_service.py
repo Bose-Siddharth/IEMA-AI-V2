@@ -15,6 +15,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from db import db, now_iso
+from services.knowledge_retriever import retrieve, store as kb_store
+from services.settings_service import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +70,18 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 async def generate_project(user_id: str, prompt: str) -> Dict[str, Any]:
-    """Cache-first project generation."""
+    """Retrieve-first project generation."""
+    # (1) Data lake — cross-user semantic reuse
+    if await get_setting("kb_enabled", True):
+        hit = await retrieve("builder_generate", prompt, user_id=user_id)
+        if hit and isinstance(hit["response"], dict):
+            return {"cached": True, "source": "kb", "match": hit["match"], "score": hit["score"], **hit["response"]}
+
+    # (2) Per-user legacy cache
     key = _hash_prompt(user_id, prompt)
     cached = await builder_cache_col.find_one({"_id": key})
     if cached:
-        return {"cached": True, **cached["payload"]}
+        return {"cached": True, "source": "cache", **cached["payload"]}
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"builder-gen-{key[:10]}",
@@ -102,7 +111,9 @@ async def generate_project(user_id: str, prompt: str) -> Dict[str, Any]:
         {"$set": {"payload": payload, "created_at": now_iso()}},
         upsert=True,
     )
-    return {"cached": False, **payload}
+    await kb_store("builder_generate", prompt, payload, user_id=user_id,
+                   meta={"file_count": len(payload["files"]), "name": payload["name"]})
+    return {"cached": False, "source": "llm", **payload}
 
 
 async def refine_project(existing_files: List[Dict[str, Any]], instruction: str, session_id: str) -> List[Dict[str, Any]]:

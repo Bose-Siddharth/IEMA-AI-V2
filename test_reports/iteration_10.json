@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 10 Batch A — Counseling, Data-Lake KB retrieval, Template Gallery, and Admin Settings — full backend + frontend e2e validation completed. Backend: 20/20 pytest cases pass in ~90s (test_batch_a.py). Frontend: 12/12 UI steps pass on live preview URL. Data-lake-first behavior confirmed end-to-end: 1st identical prompt hits LLM (source='llm', credits deducted), 2nd identical prompt returns source='kb' match='exact' with credits_used=0 for counseling, studio/summarize, career/learning-path, and builder/projects. Public template endpoints (list + preview) work WITHOUT auth; 6 templates seeded (todo, pomodoro, calculator, portfolio, landing, weather) with correct order/slug/description; pomodoro preview HTML contains <script> and timer keywords. Auth-gated /templates/todo/use clones template to user's projects at 0 credits and appears in subsequent GET /builder/projects. Admin /kb/stats returns {total_entries:9,total_hits:7,by_kind:{...}} correctly. Admin /settings returns {settings, defaults:{kb_similarity_threshold:0.85, kb_enabled:true}}. Threshold set to 0.6 round-trips via GET and rejects bad-key(400) + out-of-range(400). Non-admin user calling /admin/kb/stats or /admin/settings gets 403. Frontend: Counseling page loads, mode picker (career/psychology/academic) works; typing a unique career question and sending shows 'Fresh AI · 3 credits' badge on 1st send and 'From Data Lake · sim 1 · 0 credits' green Database badge on 2nd identical send. Admin Data Lake tab renders KB stats + threshold slider (starts 0.85), slider drag to ~0.60 + Save persists across reload, then reset to 0.85. Landing template gallery visible pre-login, portfolio button updates iframe srcDoc, CTA routes to /register. Sidebar: nav-counseling positioned between Code Builder and Career Intelligence; 'Counselling' NO LONGER appears in Coming Soon list. Regression: admin /auth/me and career /jobs (POST — Adzuna live) still work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Landing template preview iframe", "issues": ["Preview iframe HTML uses cdn.tailwindcss.com in <script>; browser logs the standard 'should not be used in production' warning. Cosmetic — templates are marketing demos."]},
+      {"screen": "Counseling response markdown", "issues": ["'prose-chat' class heading/paragraph spacing is acceptable but the disclaimer italic line has a very subtle border-t (border-border/50) that is barely visible in dark mode. Consider bumping to border-border/70."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_batch_a.py",
+    "/app/test_reports/pytest/pytest_batch_a.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/counseling_service.py L40: `mode = mode if mode in SYSTEM_PROMPTS else 'career'` silently coerces unknown mode to 'career' — but routers/counseling_routes.py L27 already returns 400 for unknown modes, so the fallback is dead code. Harmless but confusing. Remove the coercion OR the router validation, not both.",
+    "routers/counseling_routes.py L15: `CREDIT_COST_COUNSEL = float(...)` is at module import — hot-editing .env requires backend restart. Consistent with builder_routes convention; document once in ops runbook.",
+    "services/knowledge_retriever.py L37: token filter drops words <=3 chars. Common tech tokens like 'gpt', 'llm', 'sql', 'aws', 'gcp', 'seo', 'iam' get dropped, which weakens semantic match precision for short-tech prompts. Consider length >= 2 for tokens matching /^[a-z]{2,}$/.",
+    "services/knowledge_retriever.py L87: uses Mongo `$text` operator — requires the `prompt_norm_text` index which ensure_kb_indexes creates. If two collections attempt different text index specs (kind + prompt_norm), Mongo will silently refuse the second — audit /app/backend/services/*.py for any other ai_responses_col text index calls.",
+    "routers/admin_routes.py L120-137: `update_setting` writes value BEFORE returning; there is no audit log of who changed the threshold. For a security-relevant setting, log admin user_id + prev/new via data_lake.log_event.",
+    "components/TemplateGallery.jsx L17: on template gallery initial load, calls GET /templates then immediately GET /templates/{first}/preview — races with paint. If backend is cold, the first paint shows an empty preview until both requests finish. Not a bug but consider skeleton for iframe."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_batch_a.py (new — 20 tests: 4 public templates + 4 counseling + 1 studio KB + 1 career KB + 1 builder KB + 7 admin + 2 regression)"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% (12/12 UI steps)"},
+  "test_credentials": "Admin siddharth.bose@iemlabs.com / Admin@12345; disposable non-admin user testuser_<runhex>@example.com / Test@1234 created via /auth/register.",
+  "seed_data_creation": "Backend pytest: 4 counseling KB entries (career + psychology + academic + duplicate hits), 1 studio_summarize KB entry, 1 career_learning_path KB entry (TEST_BatchA_<hex>_DataEngineer), 1 builder_generate KB entry with RUN-suffix (test creates 2 projects both deleted at end), 1 disposable user (testuser_<runhex>@example.com). All threshold changes reset to 0.85 at test end. Frontend UI: 1 counseling career KB entry added (unique batchA-UI-<hex> prompt); left in KB for next iteration to verify persistence, harmless. Admin credit spend was ~29 credits (LLM path: 3 counseling + 2 studio + 5 learning-path + 15 builder + 3 UI counseling); wallet at 136 after run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Batch A features are fully working. Data-lake-first retrieval fires on 2nd identical prompt across all four kinds (counseling / studio_summarize / career_learning_path / builder_generate). Public template endpoints require NO auth and are used by /  landing gallery. Admin Data Lake tab shows aggregated by_kind stats + threshold slider (currently 0.85) + 'Data Lake retrieval enabled' toggle + Save button. If re-running: (1) `pytest tests/test_batch_a.py -n 0` — serial required because the same admin user is shared. (2) TestBuilderKB spends 15 credits on the LLM path; total run ~26 credits per admin. (3) Admin wallet is at ~136; safe for 2-3 more full runs before top-up. Auth login response schema is nested: `body.tokens.access_token`, NOT top-level `access_token`. Counseling response schema returns `disclaimer` on every call (LLM AND KB paths).",
+  "rca of the issue": "N/A — no test failures. All 20 backend + all 12 frontend UI steps pass."
+}
