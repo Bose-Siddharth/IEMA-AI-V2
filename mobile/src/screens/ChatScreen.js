@@ -40,8 +40,11 @@ export default function ChatScreen({ navigation, route }) {
   }, [messages, streamText]);
 
   const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Alert.alert('Permission needed', 'Allow photo access to attach images.'); return; }
+    // Uses the Android 13+ system Photo Picker & iOS PHPicker — neither of
+    // which requires broad media-library permission. We deliberately do NOT
+    // call requestMediaLibraryPermissionsAsync (that requests the deprecated
+    // READ_MEDIA_IMAGES permission which Google Play blocks under the photo
+    // and video permissions policy).
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,

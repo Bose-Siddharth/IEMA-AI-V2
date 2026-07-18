@@ -13,7 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0a0f"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.iemaai.app",
@@ -26,22 +28,54 @@
     },
     "android": {
       "package": "com.iemaai.app",
-      "versionCode": 1,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#3b82f6"
       },
-      "permissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-image-picker",
-      "expo-secure-store"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "IEMA.ai uses the system photo picker so you can attach images to chats without granting broad photo-library access.",
+          "cameraPermission": "IEMA.ai needs the camera only when you tap the camera icon to attach a photo.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ]
     ],
     "extra": {
-      "apiBaseUrl": "https://iema-ai-platform.preview.emergentagent.com"
-    }
+      "apiBaseUrl": "https://iema-ai-platform.preview.emergentagent.com",
+      "eas": {
+        "projectId": "d6e0dba8-f63e-40a4-8cba-baa765a2f423"
+      }
+    },
+    "owner": "siddharth1426"
   }
 }
