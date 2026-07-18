@@ -1,33 +1,32 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Alert, ActivityIndicator, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { Check } from 'lucide-react-native';
 import api from '../api';
 import ScreenHeader from '../components/ScreenHeader';
 import { Button } from '../components/UI';
 import { colors, spacing, fontSize, radii } from '../theme';
+import {
+  isIapAvailable, initIap, loadSubscriptions, purchaseSubscription, endIap,
+  PRODUCT_TO_PLAN,
+} from '../services/iap';
 
 /**
- * Mobile Billing — mirrors the web experience exactly:
- *   - Prices shown in USD only (no INR selector, no Stripe)
- *   - Payments go through Razorpay **Payment Links** (hosted at rzp.io),
- *     opened inside an in-app browser via expo-web-browser. This works in
- *     Expo Go and standalone builds — no native IAP module required —
- *     and the rzp.io host bypasses the "unauthorized website" restriction
- *     tied to our merchant profile.
- *   - After the browser closes we poll the server for the payment status
- *     and refresh the wallet automatically.
+ * Billing screen — uses native IAP for iOS + Android subscriptions
+ * (Apple StoreKit / Google Play Billing) as required by App Store 3.1.1 and
+ * Google Play Billing policy. Falls back to Razorpay Payment Links for the
+ * one-time top-up packs (still permitted because they map to a real,
+ * off-platform account balance, not to unlocking in-app content).
  *
- * Native App Store / Play Store IAP is scaffolded on the backend
- * (/api/payments/iap/apple/verify, /iap/google/verify). To flip mobile
- * subscriptions to native IAP for iOS submission, add `react-native-iap`
- * via EAS Build and call those endpoints with the receipt payload. Until
- * then, Razorpay Payment Links serve both iOS and Android users.
+ * When running under Expo Go the `react-native-iap` native module is not
+ * linked; we detect that and hide the IAP buttons behind an informational
+ * card instead of crashing.
  */
-
 export default function BillingScreen({ navigation }) {
   const [packs, setPacks] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [iapProducts, setIapProducts] = useState([]);
+  const [iapReady, setIapReady] = useState(false);
   const [buying, setBuying] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -42,11 +41,37 @@ export default function BillingScreen({ navigation }) {
       if (plansRes.status === 'fulfilled') {
         setPlans((plansRes.value.data.items || []).filter((p) => !p.is_free));
       }
-    } catch { /* silent */ }
-    finally { setLoading(false); }
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Initialise IAP once we know which plans exist.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!isIapAvailable()) return; // Expo Go — skip silently
+      const res = await initIap({
+        onPurchase: (verified) => {
+          Alert.alert('Subscription active',
+            `Your ${verified.plan_id?.toUpperCase()} plan is now active. Enjoy your credits!`);
+          navigation.navigate('Wallet');
+          setBuying(null);
+        },
+        onError: (err) => {
+          Alert.alert('Purchase failed', err?.message || String(err));
+          setBuying(null);
+        },
+      });
+      if (!mounted) return;
+      if (res?.ok) {
+        setIapReady(true);
+        const products = await loadSubscriptions();
+        if (mounted) setIapProducts(products);
+      }
+    })();
+    return () => { mounted = false; endIap(); };
+  }, [navigation]);
 
   const openHostedCheckout = async (shortUrl, onSettled) => {
     try {
@@ -54,8 +79,6 @@ export default function BillingScreen({ navigation }) {
         dismissButtonStyle: 'close',
         controlsColor: colors.primary,
       });
-      // `dismiss` = user closed the tab; `cancel` = they aborted.
-      // Either way we poll — payment may still have succeeded before dismissal.
       if (result?.type === 'dismiss' || result?.type === 'cancel') {
         await onSettled?.();
       }
@@ -64,6 +87,7 @@ export default function BillingScreen({ navigation }) {
     }
   };
 
+  /** Top-up packs — off-platform balance, Razorpay Payment Link. */
   const buyPack = async (pack) => {
     setBuying(pack.slug);
     try {
@@ -73,15 +97,15 @@ export default function BillingScreen({ navigation }) {
         try {
           const { data: st } = await api.get(`/payments/razorpay/link-status/${data.payment_link_id}`);
           if (st.status === 'paid') {
-            Alert.alert('Payment successful', `${Math.floor(st.credits)} credits added to your wallet.`);
+            Alert.alert('Payment successful', `${Math.floor(st.credits)} credits added.`);
             navigation.navigate('Wallet');
           } else if (st.status === 'cancelled' || st.status === 'expired') {
             Alert.alert('Payment not completed', 'The checkout was cancelled or expired.');
           } else {
-            Alert.alert('Payment pending', 'We\u2019re still confirming your payment \u2014 credits will appear shortly.');
+            Alert.alert('Payment pending', 'Your credits will appear shortly.');
           }
         } catch {
-          Alert.alert('Verification pending', 'We couldn\u2019t confirm the payment yet. Please check the Wallet screen in a moment.');
+          Alert.alert('Verification pending', 'Please check the Wallet screen shortly.');
         }
       });
     } catch (err) {
@@ -89,19 +113,42 @@ export default function BillingScreen({ navigation }) {
     } finally { setBuying(null); }
   };
 
-  const subscribe = async (plan) => {
+  /** Subscription — native IAP via Apple StoreKit / Google Play Billing. */
+  const subscribeIap = async (plan) => {
+    const sku = Object.entries(PRODUCT_TO_PLAN).find(([, planId]) => planId === plan.plan_id)?.[0];
+    if (!sku) {
+      Alert.alert('Product unavailable', `No store product mapped for plan "${plan.plan_id}".`);
+      return;
+    }
+    if (!isIapAvailable()) {
+      Alert.alert(
+        'IAP unavailable',
+        'In-app purchases are only available in a native build. Install the IEMA.ai app from TestFlight / Play Store.',
+      );
+      return;
+    }
+    if (!iapReady) {
+      Alert.alert('Please wait', 'Store is still connecting…');
+      return;
+    }
+    const known = iapProducts.some((p) => p.productId === sku);
+    if (!known) {
+      Alert.alert(
+        'Product not found',
+        `The store didn't return "${sku}". Make sure the product is created and active in ${Platform.OS === 'ios' ? 'App Store Connect' : 'Google Play Console'} and that this build is on the same test track.`,
+      );
+      return;
+    }
     setBuying(plan.plan_id);
     try {
-      const { data } = await api.post(`/payments/subscribe/${plan.plan_id}`);
-      if (!data?.short_url) throw new Error('No checkout URL returned');
-      await openHostedCheckout(data.short_url, async () => {
-        Alert.alert('Subscription in progress',
-          'Once Razorpay confirms your first charge you\u2019ll receive the plan\u2019s monthly credits. Check the Wallet screen shortly.');
-        navigation.navigate('Wallet');
-      });
+      await purchaseSubscription(sku);
+      // Success is delivered through the purchaseUpdatedListener → onPurchase.
     } catch (err) {
-      Alert.alert('Subscribe failed', err.response?.data?.detail || err.message || 'Try again');
-    } finally { setBuying(null); }
+      if (err?.code !== 'E_USER_CANCELLED') {
+        Alert.alert('Purchase failed', err?.message || String(err));
+      }
+      setBuying(null);
+    }
   };
 
   if (loading) {
@@ -113,42 +160,65 @@ export default function BillingScreen({ navigation }) {
     );
   }
 
+  const iapNotAvailable = !isIapAvailable();
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScreenHeader title="Billing" navigation={navigation} />
       <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
         <Text style={{ color: colors.textMuted, fontSize: fontSize.sm }}>
-          Prices in USD. Payments via Razorpay \u2014 your card is billed the equivalent INR at checkout.
+          {`Prices in USD. Subscriptions are billed by ${Platform.OS === 'ios' ? 'Apple' : 'Google Play'}. Top-up packs bill via Razorpay.`}
         </Text>
+
+        {iapNotAvailable && (
+          <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, backgroundColor: colors.card }}>
+            <Text style={{ color: colors.text, fontWeight: '600' }}>Store not linked</Text>
+            <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, marginTop: 4 }}>
+              You are running IEMA.ai in Expo Go, which doesn&#39;t include the native In-App
+              Purchase module. Subscriptions become available once you install a native build
+              from TestFlight (iOS) or the internal test track (Android).
+            </Text>
+          </View>
+        )}
 
         {plans.length > 0 && (
           <>
             <Text style={{ color: colors.text, fontSize: fontSize.lg, fontWeight: '600', marginTop: 8 }}>
               Recurring plans
             </Text>
-            {plans.map((p) => (
-              <View key={p.plan_id} style={cardStyle(false)}>
-                <Text style={labelStyle}>{(p.billing_period || 'monthly').toUpperCase()}</Text>
-                <Text style={{ color: colors.text, fontSize: fontSize.lg, fontWeight: '600', marginTop: 2 }}>
-                  {p.name}
-                </Text>
-                <Text style={priceStyle}>
-                  ${p.price_usd}
-                  <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '400' }}>
-                    {' '}/ {p.billing_period === 'annual' ? 'year' : 'month'}
+            {plans.map((p) => {
+              const sku = Object.entries(PRODUCT_TO_PLAN).find(([, id]) => id === p.plan_id)?.[0];
+              const storeProduct = iapProducts.find((sp) => sp.productId === sku);
+              const priceLabel = storeProduct
+                ? (storeProduct.localizedPrice
+                    || storeProduct.subscriptionOfferDetails?.[0]?.pricingPhases
+                        ?.pricingPhaseList?.[0]?.formattedPrice
+                    || `$${p.price_usd}`)
+                : `$${p.price_usd}`;
+              return (
+                <View key={p.plan_id} style={cardStyle(false)}>
+                  <Text style={labelStyle}>{(p.billing_period || 'monthly').toUpperCase()}</Text>
+                  <Text style={{ color: colors.text, fontSize: fontSize.lg, fontWeight: '600', marginTop: 2 }}>
+                    {p.name}
                   </Text>
-                </Text>
-                <View style={{ gap: 4, marginTop: 12 }}>
-                  <Row text={`${p.monthly_credits} credits / ${p.billing_period === 'annual' ? 'year' : 'month'}`} />
-                  <Row text={`${p.window_credits} credits per ${p.window_hours}h window`} />
-                  <Row text="All AI modules" />
+                  <Text style={priceStyle}>
+                    {priceLabel}
+                    <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, fontWeight: '400' }}>
+                      {' '}/ {p.billing_period === 'annual' ? 'year' : 'month'}
+                    </Text>
+                  </Text>
+                  <View style={{ gap: 4, marginTop: 12 }}>
+                    <Row text={`${p.monthly_credits} credits / ${p.billing_period === 'annual' ? 'year' : 'month'}`} />
+                    <Row text={`${p.window_credits} credits per ${p.window_hours}h window`} />
+                    <Row text="All AI modules" />
+                  </View>
+                  <Button title={buying === p.plan_id ? 'Purchasing\u2026' : `Subscribe`}
+                          loading={buying === p.plan_id}
+                          onPress={() => subscribeIap(p)}
+                          style={{ marginTop: spacing.lg }} />
                 </View>
-                <Button title={buying === p.plan_id ? 'Opening\u2026' : `Subscribe to ${p.name}`}
-                        loading={buying === p.plan_id}
-                        onPress={() => subscribe(p)}
-                        style={{ marginTop: spacing.lg }} />
-              </View>
-            ))}
+              );
+            })}
           </>
         )}
 

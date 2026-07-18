@@ -104,3 +104,18 @@ frontend/node_modules/.cache/default-development/15.pack
 frontend/node_modules/.cache/default-development/15.pack
 frontend/node_modules/.cache/default-development/17.pack
 frontend/node_modules/.cache/default-development/18.pack
+
+# Secrets — NEVER commit these
+backend/credentials/
+backend/.env
+frontend/.env
+mobile/.env
+*.p8
+*.keystore
+*.jks
+*service-account*.json
+*google-play-sa*.json
+*google-service-account*.json
+*google-play-service*.json
+*firebase-adminsdk*.json
+*.pem
