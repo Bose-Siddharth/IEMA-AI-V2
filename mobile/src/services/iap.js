@@ -11,7 +11,13 @@
  * the native `RNIap` binding is absent).
  */
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import api from '../api';
+
+// Detect Expo Go runtime — `react-native-iap` uses TurboModules and would
+// fatal-crash the JS bridge under Expo Go's bridgeless mode. We must never
+// even `require()` it there.
+const IS_EXPO_GO = Constants?.appOwnership === 'expo' || Constants?.executionEnvironment === 'storeClient';
 
 const ANDROID_SUB_PRODUCT_IDS = [
   'iema.pro.monthly',
@@ -37,6 +43,7 @@ let _purchaseUpdateSub = null;
 let _purchaseErrorSub = null;
 
 function loadRNIap() {
+  if (IS_EXPO_GO) return null;   // <-- prevents "main not registered" in Expo Go
   if (_RNIap) return _RNIap;
   try {
     // eslint-disable-next-line global-require
