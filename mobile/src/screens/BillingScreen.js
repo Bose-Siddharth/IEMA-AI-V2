@@ -18,7 +18,7 @@ import {
  * one-time top-up packs (still permitted because they map to a real,
  * off-platform account balance, not to unlocking in-app content).
  *
- * When running under Expo Go the `react-native-iap` native module is not
+ * When running under Expo Go the `expo-iap` native module is not
  * linked; we detect that and hide the IAP buttons behind an informational
  * card instead of crashing.
  */

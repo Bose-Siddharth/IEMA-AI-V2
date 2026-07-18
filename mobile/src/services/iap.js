@@ -1,34 +1,30 @@
 /**
- * Native In-App Purchase bridge for iOS (StoreKit) and Android
- * (Google Play Billing) — wraps `react-native-iap` and forwards receipts to
- * our backend which handles server-side verification & idempotent crediting.
+ * IAP bridge — uses **expo-iap@~3.0.0** (Expo Module, StoreKit 2 on iOS +
+ * Google Play Billing v6 on Android). API is provider-agnostic so the rest
+ * of the app (BillingScreen, backend receipt endpoints) is unchanged.
  *
- * The mobile app MUST use IAP for all digital purchases on iOS and Android
- * (Apple 3.1.1, Google Play Billing policy). Razorpay Payment Links remain
- * the payment method for the web app only.
- *
- * The module is loaded lazily so the code still runs under Expo Go (where
- * the native `RNIap` binding is absent).
+ *  - iOS   → Apple StoreKit 2   (receipt POST → /api/payments/iap/apple/verify)
+ *  - Android → Google Play Billing (POST → /api/payments/iap/google/verify)
+ *  - Expo Go / web → module unavailable; caller shows a graceful fallback UI.
  */
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import api from '../api';
 
-// Detect Expo Go runtime — `react-native-iap` uses TurboModules and would
-// fatal-crash the JS bridge under Expo Go's bridgeless mode. We must never
-// even `require()` it there.
-const IS_EXPO_GO = Constants?.appOwnership === 'expo' || Constants?.executionEnvironment === 'storeClient';
+// expo-iap still requires native code, so it cannot run inside Expo Go.
+const IS_EXPO_GO =
+  Constants?.appOwnership === 'expo' ||
+  Constants?.executionEnvironment === 'storeClient';
 
-const ANDROID_SUB_PRODUCT_IDS = [
+const SUB_PRODUCT_IDS = [
   'iema.pro.monthly',
   'iema.pro.annual',
   'iema.team.monthly',
   'iema.team.annual',
 ];
-const IOS_SUB_PRODUCT_IDS = ANDROID_SUB_PRODUCT_IDS;
 
-// Map store product IDs → IEMA plan_id, must stay in sync with backend
-// `services/payments_service.py` DEFAULT_PRODUCT_MAP.
+// Must stay in sync with backend `services/payments_service.py`
+// DEFAULT_PRODUCT_MAP.
 export const PRODUCT_TO_PLAN = {
   'iema.pro.monthly': 'pro',
   'iema.pro.annual': 'pro_annual',
@@ -36,46 +32,40 @@ export const PRODUCT_TO_PLAN = {
   'iema.team.annual': 'team_annual',
 };
 
-let _RNIap = null;
+let _iap = null;
 let _initialized = false;
 let _subscriptions = [];
 let _purchaseUpdateSub = null;
 let _purchaseErrorSub = null;
 
-function loadRNIap() {
-  if (IS_EXPO_GO) return null;   // <-- prevents "main not registered" in Expo Go
-  if (_RNIap) return _RNIap;
+function loadIap() {
+  if (IS_EXPO_GO) return null;
+  if (_iap) return _iap;
   try {
     // eslint-disable-next-line global-require
-    _RNIap = require('react-native-iap');
-    return _RNIap;
-  } catch (e) {
+    _iap = require('expo-iap');
+    return _iap;
+  } catch {
     return null;
   }
 }
 
 export function isIapAvailable() {
-  return !!loadRNIap();
+  return !!loadIap();
 }
 
 export async function initIap({ onPurchase, onError } = {}) {
-  const RNIap = loadRNIap();
-  if (!RNIap) return { ok: false, reason: 'RNIap not linked (Expo Go)' };
+  const iap = loadIap();
+  if (!iap) return { ok: false, reason: 'expo-iap unavailable (Expo Go or web)' };
   if (_initialized) return { ok: true, cached: true };
   try {
-    await RNIap.initConnection();
-    // On Android, flush any lingering purchases that were interrupted mid-flow.
-    if (Platform.OS === 'android' && RNIap.flushFailedPurchasesCachedAsPendingAndroid) {
-      try { await RNIap.flushFailedPurchasesCachedAsPendingAndroid(); } catch { /* ignore */ }
-    }
-    _purchaseUpdateSub = RNIap.purchaseUpdatedListener(async (purchase) => {
+    await iap.initConnection();
+    _purchaseUpdateSub = iap.purchaseUpdatedListener(async (purchase) => {
       try {
         const verified = await verifyPurchase(purchase);
         if (verified?.ok) {
-          // Acknowledge & finish so Apple/Google mark the transaction complete
-          // and don't refund it after 3 days (Google) / 30s (Apple).
           try {
-            await RNIap.finishTransaction({ purchase, isConsumable: false });
+            await iap.finishTransaction({ purchase, isConsumable: false });
           } catch { /* already finished */ }
           onPurchase?.(verified, purchase);
         } else {
@@ -85,8 +75,7 @@ export async function initIap({ onPurchase, onError } = {}) {
         onError?.(e);
       }
     });
-    _purchaseErrorSub = RNIap.purchaseErrorListener((err) => {
-      // "E_USER_CANCELLED" is fine, everything else surfaces.
+    _purchaseErrorSub = iap.purchaseErrorListener((err) => {
       if (err?.code !== 'E_USER_CANCELLED') onError?.(err);
     });
     _initialized = true;
@@ -97,45 +86,55 @@ export async function initIap({ onPurchase, onError } = {}) {
 }
 
 export async function loadSubscriptions() {
-  const RNIap = loadRNIap();
-  if (!RNIap) return [];
-  const skus = Platform.OS === 'ios' ? IOS_SUB_PRODUCT_IDS : ANDROID_SUB_PRODUCT_IDS;
+  const iap = loadIap();
+  if (!iap) return [];
   try {
-    _subscriptions = await RNIap.getSubscriptions({ skus });
+    _subscriptions = await iap.getSubscriptions({ skus: SUB_PRODUCT_IDS });
     return _subscriptions;
-  } catch (e) {
+  } catch {
     return [];
   }
 }
 
 export async function purchaseSubscription(sku) {
-  const RNIap = loadRNIap();
-  if (!RNIap) throw new Error('In-app purchases are unavailable in Expo Go. Use a native build.');
+  const iap = loadIap();
+  if (!iap) throw new Error('In-app purchases are unavailable in Expo Go. Use a native / EAS build.');
   if (!_initialized) await initIap();
+
   if (Platform.OS === 'android') {
-    // On Play Billing v5+, you must pass `subscriptionOffers` — pick the
-    // first base plan / offer that Play returned when we loaded skus.
-    const product = _subscriptions.find((p) => p.productId === sku);
+    // Google Play Billing v6+ requires the base-plan offerToken.
+    const product = _subscriptions.find((p) => p.productId === sku || p.id === sku);
     const offerToken = product?.subscriptionOfferDetails?.[0]?.offerToken;
-    return RNIap.requestSubscription({
-      sku,
-      ...(offerToken ? { subscriptionOffers: [{ sku, offerToken }] } : {}),
+    return iap.requestPurchase({
+      request: {
+        android: {
+          skus: [sku],
+          ...(offerToken
+            ? { subscriptionOffers: [{ sku, offerToken }] }
+            : {}),
+        },
+      },
+      type: 'subs',
     });
   }
-  return RNIap.requestSubscription({ sku });
+
+  // iOS StoreKit 2 — sku only.
+  return iap.requestPurchase({
+    request: { ios: { sku } },
+    type: 'subs',
+  });
 }
 
-/** Forward the purchase receipt to our backend for server-side verification. */
 async function verifyPurchase(purchase) {
   if (Platform.OS === 'ios') {
-    // Apple: receipt is a base64 string in `transactionReceipt`.
-    const receipt = purchase?.transactionReceipt;
+    // StoreKit 2 exposes a JWS receipt on `jwsRepresentation`; expo-iap also
+    // maps the classic App Store receipt to `transactionReceipt`. We send
+    // whichever is present.
+    const receipt = purchase?.jwsRepresentation || purchase?.transactionReceipt;
     if (!receipt) return { ok: false, error: 'no iOS receipt' };
     const { data } = await api.post('/payments/iap/apple/verify', { receipt });
     return data;
   }
-  // Android: send productId + purchaseToken; backend calls
-  // androidpublisher.purchases.subscriptions.get.
   const { data } = await api.post('/payments/iap/google/verify', {
     product_id: purchase.productId,
     purchase_token: purchase.purchaseToken,
@@ -145,11 +144,11 @@ async function verifyPurchase(purchase) {
 }
 
 export async function endIap() {
-  const RNIap = loadRNIap();
-  if (!RNIap || !_initialized) return;
+  const iap = loadIap();
+  if (!iap || !_initialized) return;
   try { _purchaseUpdateSub?.remove?.(); } catch { /* ignore */ }
   try { _purchaseErrorSub?.remove?.(); } catch { /* ignore */ }
-  try { await RNIap.endConnection(); } catch { /* ignore */ }
+  try { await iap.endConnection(); } catch { /* ignore */ }
   _initialized = false;
   _purchaseUpdateSub = null;
   _purchaseErrorSub = null;
