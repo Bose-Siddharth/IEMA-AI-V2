@@ -1,0 +1,39 @@
+{
+  "summary": "Verified 3 reported Studio bug fixes on web. History items now open and switch tabs correctly. Video generator UI stays intact during rendering (loading spinner + disabled buttons + cross-tab blocking hint). Summarize returns real markdown text (no [object Object]). HOWEVER the Image tab's 'Objects are not valid as a React child' fix is INCOMPLETE — while studioStore.fail() coerces the state.error string, the sibling `toast.error(e.response?.data?.detail || ...)` call in Studio.jsx still passes the raw object to sonner, which then throws the React child error and unmounts the whole page. This is reproducible today because the backend returns a 429 rate-limit body of shape { message, resets_at, window_hours, used, cap, resets_in_ms } for /api/studio/image.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/studio/history?kind=image", "issue": "Existing image events return url:null and urls:null (see items 6a59ddf1... and 6a59dc53...). Tapping such items opens the Image tab but nothing populates because studioStore.complete('img', { images: [] }) has no URLs to render."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Studio.jsx ImageGen catch block (also VideoGen and Summarize catches)", "issue": "toast.error(e.response?.data?.detail || 'Image generation failed') passes the raw error object to sonner when the backend returns a 429 body like { message, resets_at, window_hours, used, cap, resets_in_ms }. sonner renders it as a React child and throws 'Objects are not valid as a React child (found: object with keys {message, resets_at, window_hours, used, cap, resets_in_ms})', which unmounts the entire Studio page. Studio.jsx lines 66, 134, 197 all have the same shape.", "selector": "[data-testid='studio-image-btn']", "priority": "CRITICAL"},
+      {"component": "Studio.jsx StudioHistory image open path", "issue": "When history item has url:null and urls:null (older backend events), tapping opens the Image tab but shows no thumbnail or Save button — user cannot 'continue editing' the previous image. Backend fix needed OR UI should surface an empty-state hint like 'This image is no longer available'.", "selector": "[data-testid='studio-history-item-image']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Image generation rate-limit (429)", "issue": "Studio.jsx propagates the raw detail object into both studioStore.fail (safe now) and toast.error (still unsafe). One coercion helper (e.g. `errText = typeof detail === 'string' ? detail : detail?.message || JSON.stringify(detail)`) should be used for BOTH the store fail() and the toast.error() call in every catch block (summarize/image/video).", "affected_selectors": ["[data-testid='studio-image-btn']", "[data-testid='studio-video-btn']", "[data-testid='studio-summarize-btn']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "In /app/frontend/src/pages/Studio.jsx (and matching /app/mobile/src/screens/StudioScreen.js), wrap the toast.error argument in the same coercion used inside studioStore.fail(). Simplest fix: extract a helper `const coerce = (d) => typeof d==='string'?d : Array.isArray(d)?d.map(e=>e?.msg||JSON.stringify(e)).join(', ') : (d?.message||d?.msg||JSON.stringify(d||'')); ` and call `toast.error(coerce(e.response?.data?.detail) || 'Image generation failed')` in all three catch handlers.",
+    "Alternatively, keep the coercion inside studioStore.fail() but change the toast call to `toast.error(state.error || 'Image generation failed')` after calling studioStore.fail(), since studioStore.fail() already stores the coerced string.",
+    "Backfill /api/studio/history image events so `urls` (and thus `url`) is populated — otherwise re-opening an image history item shows an empty Image tab. OR add a UI empty-state when studioStore images array is empty.",
+    "Seed a video history item for this admin so future testing can verify the 'History → Video re-open' path (there are 0 video items today, so that particular acceptance criterion was not exercisable)."
+  ],
+  "critical_code_review_comments": [
+    "Studio.jsx has three near-identical async run() functions (Summarize/ImageGen/VideoGen). Extracting a shared `runStudio(kind, apiPath, buildBody)` helper would eliminate the recurring risk of one catch block being fixed and another forgotten (which is exactly what happened with the toast.error → object bug).",
+    "studioStore.fail() coerces to string but the caller separately passes the raw object to sonner — the safety net only works for state.error rendering, not for toast rendering. Consider making studioStore.fail() return the coerced string so callers can `toast.error(studioStore.fail(k, err))`.",
+    "Backend /api/studio/history returns `url:null, urls:null` for older image events — this creates the misleading UX where 'History item opens' but shows nothing. Either persist the signed url at creation time (already done in newer events per line 161) or expose a re-sign endpoint."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run)", "frontend": "80%"},
+  "test_credentials": "admin: siddharth.bose@iemlabs.com / Admin@12345 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — used existing history (16 items: 14 summarize + 2 image, 0 video).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The critical remaining bug is that Studio.jsx's toast.error(detail) call in every catch block passes the raw error object when the backend returns a structured 429 body {message, resets_at, window_hours, used, cap, resets_in_ms}. Reproduction: log in as admin, /studio → Image tab → prompt 'a red apple' → Generate. If daily image quota is not exhausted, you'll get an image; if it IS exhausted (the state we hit) the 429 crashes the whole page. Fix must also cover Summarize and Video catch blocks. History image items with null url/urls also need backend attention. Login/social auth and mobile flows were skipped per request. Sora video generation was verified to enter loading state cleanly with correct cross-tab blocking; completion (2-5 min) was not awaited.",
+  "rca_of_the_issue": "Root cause: studioStore.fail() was updated to coerce non-string errors to strings for the state.error render path, but the parallel toast.error(e.response?.data?.detail || 'msg') calls in Studio.jsx (lines 66, 134, 197) were NOT updated. When the backend returns a 429 with body { detail: {message, resets_at, window_hours, used, cap, resets_in_ms} }, `toast.error(detail)` passes the object straight to sonner, which renders it as a React child and throws 'Objects are not valid as a React child'. The error surfaces at the React render level and unmounts the entire Studio page. Reproduction: Log in as admin → /studio → Image tab → any prompt → Generate. If the daily image quota is exhausted (siddharth.bose@iemlabs.com is at the cap right now) → 429 → crash. Mitigation: Coerce the toast argument the same way studioStore.fail() coerces. Suggested one-line: `const detail = e.response?.data?.detail; const msg = typeof detail === 'string' ? detail : detail?.message || detail?.msg || JSON.stringify(detail || 'Image generation failed'); studioStore.fail('img', msg); toast.error(msg);` — applied identically in Summarize/Image/Video catch blocks."
+}
