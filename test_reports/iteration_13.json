@@ -1,0 +1,23 @@
+{
+  "summary": "RETEST of iteration 12 crash: PASSED. detailToString() helper in Studio.jsx is now correctly used in all three catch blocks (summarize/image/video), and both studioStore.fail() AND toast.error() receive a coerced string. Reproduced the exact previous scenario: logged in as admin, went to /studio → Image tab, entered 'a red apple' and clicked Generate 4 times in a row. On attempt 3 the backend returned a 429 rate-limit body ({message, resets_at, window_hours, used, cap, resets_in_ms}). The Studio page STAYED mounted, the state.error card under the form rendered the human-readable string 'Usage window exhausted' (NOT [object Object]), and NO 'Objects are not valid as a React child' error appeared in the browser console (only the expected `Failed to load resource: 429`). History tab still lists all 16 items (14 summarize + 2 image, 0 video), clicking a summarize history item switches to the Summarize tab and rehydrates the previous result, and clicking an image history item switches to the Image tab — the iteration-12 fix continues to work.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Studio.jsx still has three near-identical run() functions (Summarize/ImageGen/VideoGen). Extracting a shared `runStudio(kind, apiPath, buildBody)` helper would eliminate the recurring risk of one catch block being fixed and another forgotten. Not blocking — current detailToString() is applied in all three catches — but future-proofing.",
+    "Backend /api/studio/history still returns url:null / urls:null for older image events per iteration 12 notes. This creates a mild UX quirk when reopening those items (empty Image tab), but it did not surface in this test run because the two existing image events happened to still have URLs. Out of scope for this bug fix retest."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run)", "frontend": "100% for the three targeted acceptance criteria"},
+  "test_credentials": "admin: siddharth.bose@iemlabs.com / Admin@12345 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — the admin's image quota was already exhausted, so the 429 crash scenario reproduced on the 3rd click.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 13 confirmed commit a6794aa fully resolves the 'Objects are not valid as a React child' unmount bug on Studio's Image tab under a 429 rate-limit response. detailToString() is defined at the top of /app/frontend/src/pages/Studio.jsx and used in all three catch blocks (summarize/image/video). studioStore.fail() also coerces internally as a second line of defense. History → tab switch → rehydrate flow from iteration 12 still works. The one remaining backend quirk (older image history items with null urls) was NOT retested here as it is a separate backend concern (see iteration 12).",
+  "rca_of_the_issue": "Root cause (from iteration 12) was that toast.error(e.response?.data?.detail) passed the raw 429 body object to sonner, which threw a React child error and unmounted the page. Commit a6794aa fixes this by introducing detailToString(err, fallback) that returns a string for string/array/object/undefined detail values. All three catch blocks now call `studioStore.fail(k, detailToString(e, ...)); toast.error(detailToString(e, ...));`. Verified live: 429 → error card shows 'Usage window exhausted', toast fires with same string, page stays mounted, no React child error in console."
+}
