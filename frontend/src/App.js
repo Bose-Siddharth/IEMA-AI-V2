@@ -9,6 +9,7 @@ import AuthPage from '@/pages/AuthPage';
 import AuthCallback from '@/pages/AuthCallback';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
+import MobileOAuthBridge from '@/pages/MobileOAuthBridge';
 import AppLayout from '@/components/AppLayout';
 import MsalRedirectHandler from '@/components/MsalRedirectHandler';
 import Chat from '@/pages/Chat';
@@ -39,6 +40,7 @@ function App() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/mobile-oauth" element={<MobileOAuthBridge />} />
             <Route path="/payment-success" element={<PaymentSuccess />} />
 
             <Route element={<AppLayout />}>

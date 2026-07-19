@@ -56,55 +56,54 @@ export default function SocialAuthButtons() {
     } finally { setLoading(null); }
   };
 
+  // Google, GitHub and LinkedIn all go through the web bridge — none of
+  // them register the custom scheme `iemaai://auth`, only the already-
+  // deployed web `/auth/callback` URL. The bridge does the OAuth dance
+  // there, then hands JWTs back to the app via `iemaai://auth?…`.
   const signInGoogle = () => withProvider('google', async () => {
     if (!oauthCfg.google?.enabled) throw new Error('Google not configured');
-    const request = new AuthSession.AuthRequest({
-      clientId: oauthCfg.google.client_id,
-      redirectUri,
-      responseType: AuthSession.ResponseType.IdToken,
-      scopes: ['openid', 'profile', 'email'],
-      extraParams: { nonce: Math.random().toString(36).slice(2) },
-    });
-    const result = await request.promptAsync(GOOGLE_DISCOVERY);
-    if (result.type !== 'success') return;
-    const idToken = result.params?.id_token;
-    if (!idToken) throw new Error('No id_token from Google');
-    const { data } = await api.post('/auth/google-verify', { credential: idToken });
-    finish(data);
+    const data = await webBridge('google');
+    if (data) finish(data);
   });
+
+  // GitHub / LinkedIn reject non-HTTPS redirect URIs, so a custom-scheme
+  // (`iemaai://auth`) can't be registered on either provider. We instead
+  // route the user through the web `/mobile-oauth?provider=…` bridge which
+  // uses the already-registered web callback URL and, on success, redirects
+  // the browser to `iemaai://auth?access_token=…&refresh_token=…`. The app
+  // catches that via WebBrowser.openAuthSessionAsync.
+  const webBridge = async (provider) => {
+    if (!api.defaults.baseURL) throw new Error('API base URL missing');
+    const webOrigin = String(api.defaults.baseURL).replace(/\/api\/?$/, '');
+    const url = `${webOrigin}/mobile-oauth?provider=${provider}&app_scheme=iemaai`;
+    const res = await WebBrowser.openAuthSessionAsync(url, 'iemaai://auth');
+    if (res.type !== 'success' || !res.url) return null;
+    // The returning URL is `iemaai://auth?access_token=…&refresh_token=…&user=…`
+    const q = res.url.split('?')[1] || '';
+    const params = Object.fromEntries(
+      q.split('&').filter(Boolean).map((p) => p.split('=').map(decodeURIComponent))
+    );
+    if (params.error) throw new Error(params.error);
+    if (!params.access_token) throw new Error('No token returned from web bridge');
+    return {
+      user: params.user ? JSON.parse(params.user) : null,
+      tokens: {
+        access_token: params.access_token,
+        refresh_token: params.refresh_token,
+      },
+    };
+  };
 
   const signInGithub = () => withProvider('github', async () => {
     if (!oauthCfg.github?.enabled) throw new Error('GitHub not configured');
-    const request = new AuthSession.AuthRequest({
-      clientId: oauthCfg.github.client_id,
-      redirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      scopes: ['read:user', 'user:email'],
-    });
-    const result = await request.promptAsync(GITHUB_DISCOVERY);
-    if (result.type !== 'success') return;
-    const code = result.params?.code;
-    if (!code) throw new Error('No code from GitHub');
-    // Backend handles the client_secret + code exchange (GitHub disallows
-    // exchanging the code from a public client).
-    const { data } = await api.post('/auth/github', { code, redirect_uri: redirectUri });
-    finish(data);
+    const data = await webBridge('github');
+    if (data) finish(data);
   });
 
   const signInLinkedIn = () => withProvider('linkedin', async () => {
     if (!oauthCfg.linkedin?.enabled) throw new Error('LinkedIn not configured');
-    const request = new AuthSession.AuthRequest({
-      clientId: oauthCfg.linkedin.client_id,
-      redirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      scopes: ['openid', 'profile', 'email'],
-    });
-    const result = await request.promptAsync(LINKEDIN_DISCOVERY);
-    if (result.type !== 'success') return;
-    const code = result.params?.code;
-    if (!code) throw new Error('No code from LinkedIn');
-    const { data } = await api.post('/auth/linkedin', { code, redirect_uri: redirectUri });
-    finish(data);
+    const data = await webBridge('linkedin');
+    if (data) finish(data);
   });
 
   const signInApple = () => withProvider('apple', async () => {
@@ -161,7 +160,7 @@ export default function SocialAuthButtons() {
       </TouchableOpacity>
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         {Platform.OS === 'ios'
-          ? chip('Apple', signInApple, 'apple', 'social-apple', !oauthCfg.apple?.enabled)
+          ? chip('Apple', signInApple, 'apple', 'social-apple', false)
           : chip('Apple', () => Alert.alert('Apple Sign-In', 'Apple Sign-In requires iOS.'), 'apple', 'social-apple', true)}
         {chip('GitHub', signInGithub, 'github', 'social-github', !oauthCfg.github?.enabled)}
         {chip('LinkedIn', signInLinkedIn, 'linkedin', 'social-linkedin', !oauthCfg.linkedin?.enabled)}
