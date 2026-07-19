@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent
@@ -67,6 +68,13 @@ api_router.include_router(counseling_router)
 # Stripe was removed; nothing to mount at /api/webhook/stripe anymore.
 
 app.include_router(api_router)
+
+# Serve locally-generated media (Sora 2 videos, etc.) under /api/media-static/
+# so the frontend can display them via a public URL even when S3 upload is not
+# configured. The route is under /api/ so Kubernetes ingress reaches port 8001.
+_uploads_dir = Path(os.environ.get("BACKEND_UPLOADS_DIR", str(ROOT_DIR / "uploads")))
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/api/media-static", StaticFiles(directory=str(_uploads_dir)), name="media-static")
 
 app.add_middleware(DataLakeMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
@@ -140,10 +148,13 @@ async def startup():
             if existing.get("role") != "admin":
                 await users_col.update_one({"email": admin_email}, {"$set": {"role": "admin"}})
 
-    # Seed credit packs
-    for pack_data in DEFAULT_PACKS:
-        exists = await credit_packs_col.find_one({"slug": pack_data["slug"]})
-        if not exists:
+    # Seed credit packs ONLY on cold-start (when zero packs exist). This lets
+    # admins freely edit / delete / add packs from the admin panel without the
+    # next server restart clobbering their changes.
+    existing_pack_count = await credit_packs_col.count_documents({})
+    if existing_pack_count == 0:
+        logger.info("No packs found — seeding defaults")
+        for pack_data in DEFAULT_PACKS:
             pack = CreditPack(**pack_data)
             await credit_packs_col.insert_one(pack.to_mongo())
     logger.info("IEMA.ai v2 API started")

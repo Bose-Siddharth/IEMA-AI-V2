@@ -30,6 +30,13 @@ DEFAULT_PRICING = [
     {"_id": "studio_image_low",       "credit_cost": 10, "provider": "openai",    "category": "studio",     "description": "Studio image generation (low)"},
     {"_id": "studio_image_medium",    "credit_cost": 20, "provider": "openai",    "category": "studio",     "description": "Studio image generation (medium)"},
     {"_id": "studio_image_high",      "credit_cost": 40, "provider": "openai",    "category": "studio",     "description": "Studio image generation (high)"},
+    # Sora 2 video generation — priced per-duration; pro tier costs 3× standard.
+    {"_id": "studio_video_std_4s",    "credit_cost": 60,  "provider": "openai",   "category": "studio",     "description": "Sora 2 video (4s)"},
+    {"_id": "studio_video_std_8s",    "credit_cost": 120, "provider": "openai",   "category": "studio",     "description": "Sora 2 video (8s)"},
+    {"_id": "studio_video_std_12s",   "credit_cost": 180, "provider": "openai",   "category": "studio",     "description": "Sora 2 video (12s)"},
+    {"_id": "studio_video_pro_4s",    "credit_cost": 180, "provider": "openai",   "category": "studio",     "description": "Sora 2 Pro video (4s)"},
+    {"_id": "studio_video_pro_8s",    "credit_cost": 360, "provider": "openai",   "category": "studio",     "description": "Sora 2 Pro video (8s)"},
+    {"_id": "studio_video_pro_12s",   "credit_cost": 540, "provider": "openai",   "category": "studio",     "description": "Sora 2 Pro video (12s)"},
     {"_id": "career_job_search",      "credit_cost": 0,  "provider": "adzuna",    "category": "career",     "description": "Job search (Adzuna)"},
     {"_id": "career_learning_path",   "credit_cost": 5,  "provider": "anthropic", "category": "career",     "description": "Career learning roadmap"},
     {"_id": "counseling_career",      "credit_cost": 3,  "provider": "anthropic", "category": "counseling", "description": "Career counseling"},

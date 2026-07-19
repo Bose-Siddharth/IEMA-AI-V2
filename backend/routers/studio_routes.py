@@ -92,3 +92,62 @@ async def studio_image(req: ImageGenRequest, user: User = Depends(get_current_us
     except Exception as e:
         logger.exception("Image gen failed")
         raise HTTPException(500, f"Image gen failed: {str(e)[:200]}")
+
+
+
+class VideoGenRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1000)
+    # Sora 2 spec:
+    size: str = Field(default="1280x720")
+    duration: int = Field(default=4, ge=4, le=12)
+    model: str = Field(default="sora-2")   # sora-2 | sora-2-pro
+
+
+@router.post("/video")
+async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_user)):
+    """Generate a video via Sora 2. Credits are charged per-second at the
+    per-duration tier so a 12-s clip costs ~3× a 4-s clip. Pro model uses a
+    higher tier."""
+    from services.studio_service import generate_video
+    tier = "pro" if req.model == "sora-2-pro" else "std"
+    service_key = f"studio_video_{tier}_{req.duration}s"
+    try:
+        video = await generate_video(req.prompt, model=req.model, size=req.size,
+                                     duration=req.duration)
+        billing = await spend(user.id, service_key,
+                              description=f"AI Studio video ({req.model} {req.duration}s {req.size})")
+        # Persist a proper CDN-ish URL via storage_service if configured, else
+        # serve the local file (the /uploads static mount already handles it).
+        video_url = video["url_rel"]
+        if is_configured():
+            try:
+                key = await upload_bytes(
+                    open(video["path"], "rb").read(),
+                    video["filename"], "video/mp4",
+                    folder=f"studio-videos/{user.id}",
+                )
+                video_url = get_signed_url(key, expires_in=60 * 60 * 24 * 7)
+            except Exception as e:
+                logger.warning(f"S3 upload failed, using local URL: {e}")
+        await log_event(
+            "studio_video",
+            user_id=user.id,
+            payload={"prompt": req.prompt[:500], "model": req.model,
+                     "duration": req.duration, "size": req.size,
+                     "bytes": video["bytes"]},
+        )
+        return {
+            "url": video_url,
+            "duration": req.duration,
+            "size": req.size,
+            "model": req.model,
+            "credits_used": billing["credits_used"],
+            "balance": billing["balance"],
+        }
+    except ValueError as ve:
+        raise HTTPException(400, str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Video gen failed")
+        raise HTTPException(500, f"Video gen failed: {str(e)[:200]}")

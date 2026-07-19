@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
-import { PublicClientApplication } from '@azure/msal-browser';
 import api from '@/lib/api';
 import { setAuth } from '@/store/slices/authSlice';
 import { toast } from 'sonner';
@@ -14,16 +13,13 @@ import { AUTH } from '@/constants/testIds';
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
 const APPLE_SRC = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js';
 
-// Cache MSAL instance across renders
-let msalInstance = null;
-
 export default function AuthPage({ mode }) {
   const isRegister = mode === 'register';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [oauthCfg, setOauthCfg] = useState({ google: {}, microsoft: {}, apple: {} });
+  const [oauthCfg, setOauthCfg] = useState({ google: {}, apple: {}, github: {}, linkedin: {} });
   const [searchParams] = useSearchParams();
   const googleBtnRef = useRef(null);
   const dispatch = useDispatch();
@@ -37,14 +33,13 @@ export default function AuthPage({ mode }) {
 
   useEffect(() => {
     api.get('/auth/oauth-config').then((r) => setOauthCfg(r.data)).catch(() => {});
-    // If returning from legacy OAuth code redirect
     const code = searchParams.get('code');
     const state = searchParams.get('state');
     if (code && state) exchangeOAuthCode(state, code);
     // eslint-disable-next-line
   }, []);
 
-  // ---------- Google Identity Services ----------
+  // Google Identity Services
   useEffect(() => {
     if (!oauthCfg.google?.enabled) return;
     const init = () => {
@@ -53,35 +48,25 @@ export default function AuthPage({ mode }) {
         window.google.accounts.id.initialize({
           client_id: oauthCfg.google.client_id,
           callback: async (resp) => {
-            console.log('[Google] GIS callback:', { hasCredential: !!resp?.credential });
-            if (!resp?.credential) {
-              toast.error('Google did not return a credential');
-              return;
-            }
+            if (!resp?.credential) { toast.error('Google did not return a credential'); return; }
             setLoading(true);
             try {
               const { data } = await api.post('/auth/google-verify', { credential: resp.credential });
               handleAuthSuccess(data, 'Google');
             } catch (err) {
-              console.error('[Google] verify error:', err);
               toast.error(err.response?.data?.detail || 'Google sign-in failed');
             } finally { setLoading(false); }
           },
-          ux_mode: 'popup',
-          auto_select: false,
-          use_fedcm_for_prompt: true,
+          ux_mode: 'popup', auto_select: false, use_fedcm_for_prompt: true,
         });
         if (googleBtnRef.current) {
           window.google.accounts.id.renderButton(googleBtnRef.current, {
             theme: 'outline', size: 'large',
             width: googleBtnRef.current.offsetWidth || 320,
-            text: isRegister ? 'signup_with' : 'signin_with',
-            shape: 'rectangular',
+            text: isRegister ? 'signup_with' : 'signin_with', shape: 'rectangular',
           });
         }
-      } catch (e) {
-        console.error('[Google] GIS init failed:', e);
-      }
+      } catch (e) { console.error('[Google] GIS init failed:', e); }
     };
     const existing = document.querySelector(`script[src="${GSI_SRC}"]`);
     if (existing) init();
@@ -92,7 +77,7 @@ export default function AuthPage({ mode }) {
     }
   }, [oauthCfg.google?.enabled, oauthCfg.google?.client_id, isRegister]);
 
-  // ---------- Apple Sign-In JS ----------
+  // Apple Sign-In JS
   useEffect(() => {
     if (!oauthCfg.apple?.enabled) return;
     const init = () => {
@@ -116,68 +101,7 @@ export default function AuthPage({ mode }) {
     }
   }, [oauthCfg.apple?.enabled, oauthCfg.apple?.client_id]);
 
-  // Initialize MSAL on mount + handle redirect return (loginRedirect flow)
-  useEffect(() => {
-    if (!oauthCfg.microsoft?.enabled || !oauthCfg.microsoft?.client_id) return;
-    (async () => {
-      try {
-        const msal = getMsal();
-        await msal.initialize();
-        const result = await msal.handleRedirectPromise();
-        // Only auto-complete if we initiated the redirect from this app
-        const pending = (() => { try { return sessionStorage.getItem('iema_msal_pending'); } catch { return null; } })();
-        if (result?.idToken && pending) {
-          try { sessionStorage.removeItem('iema_msal_pending'); } catch { /* ignore */ }
-          setLoading(true);
-          try {
-            const { data } = await api.post('/auth/microsoft-verify', { id_token: result.idToken });
-            handleAuthSuccess(data, 'Microsoft');
-          } catch (err) {
-            console.error('[MS] verify error:', err);
-            toast.error(err.response?.data?.detail || 'Microsoft verification failed');
-          } finally { setLoading(false); }
-        }
-      } catch (e) {
-        console.warn('[MS] init/handleRedirect error, clearing state:', e?.errorCode);
-        clearMsalInteractionState();
-        msalInstance = null;
-      }
-    })();
-    // eslint-disable-next-line
-  }, [oauthCfg.microsoft?.enabled, oauthCfg.microsoft?.client_id]);
-
-  // ---------- MSAL (Microsoft) ----------
-  const getMsal = () => {
-    if (!msalInstance) {
-      msalInstance = new PublicClientApplication({
-        auth: {
-          clientId: oauthCfg.microsoft.client_id,
-          // 'common' = any Microsoft Entra tenant + personal Microsoft accounts.
-          // Requires Azure App → Supported account types set to
-          // "Accounts in any org directory AND personal Microsoft accounts".
-          authority: 'https://login.microsoftonline.com/common',
-          redirectUri: window.location.origin,
-        },
-        cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
-      });
-    }
-    return msalInstance;
-  };
-
-  // Clear any stuck MSAL interaction state
-  const clearMsalInteractionState = () => {
-    try {
-      const keys = Object.keys(sessionStorage);
-      for (const k of keys) {
-        if (k.startsWith('msal.') || k.includes('interaction.status') || k.includes('msal-interaction')) {
-          sessionStorage.removeItem(k);
-        }
-      }
-    } catch (e) { /* ignore */ }
-  };
-
   const exchangeOAuthCode = async (provider, code) => {
-    // Legacy code-flow (kept for backward compat only)
     setLoading(true);
     try {
       const redirectUri = `${window.location.origin}/auth/callback`;
@@ -207,9 +131,8 @@ export default function AuthPage({ mode }) {
   const githubSignIn = () => {
     if (!oauthCfg.github?.enabled) { toast.info('GitHub OAuth not configured'); return; }
     const redirect_uri = window.location.origin + '/auth/callback';
-    const state = 'github';
     const url = 'https://github.com/login/oauth/authorize?' + new URLSearchParams({
-      client_id: oauthCfg.github.client_id, redirect_uri, scope: 'read:user user:email', state,
+      client_id: oauthCfg.github.client_id, redirect_uri, scope: 'read:user user:email', state: 'github',
     }).toString();
     window.location.href = url;
   };
@@ -217,30 +140,9 @@ export default function AuthPage({ mode }) {
   const linkedinSignIn = () => {
     if (!oauthCfg.linkedin?.enabled) { toast.info('LinkedIn OAuth not configured'); return; }
     const redirect_uri = window.location.origin + '/auth/callback';
-    const state = 'linkedin';
     const url = 'https://www.linkedin.com/oauth/v2/authorization?' + new URLSearchParams({
       response_type: 'code', client_id: oauthCfg.linkedin.client_id, redirect_uri,
-      scope: 'openid profile email', state,
-    }).toString();
-    window.location.href = url;
-  };
-
-  const microsoftSignIn = () => {
-    if (!oauthCfg.microsoft?.enabled) { toast.info('Microsoft OAuth not configured'); return; }
-    // MSAL popup/redirect proved brittle behind our reverse proxy — fall back
-    // to the plain OAuth 2.0 authorization-code flow that GitHub/LinkedIn use.
-    const redirect_uri = window.location.origin + '/auth/callback';
-    const state = 'microsoft';
-    // 'common' allows any Azure AD tenant + personal MSA accounts. Requires
-    // the Azure app "Supported account types" to include both.
-    const url = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' + new URLSearchParams({
-      client_id: oauthCfg.microsoft.client_id,
-      response_type: 'code',
-      redirect_uri,
-      response_mode: 'query',
-      scope: 'openid email profile offline_access User.Read',
-      state,
-      prompt: 'select_account',
+      scope: 'openid profile email', state: 'linkedin',
     }).toString();
     window.location.href = url;
   };
@@ -251,19 +153,15 @@ export default function AuthPage({ mode }) {
     setLoading(true);
     try {
       const resp = await window.AppleID.auth.signIn();
-      console.log('[Apple] signIn resp:', { hasIdToken: !!resp?.authorization?.id_token });
       const idToken = resp?.authorization?.id_token;
       if (!idToken) throw new Error('No id_token from Apple');
       const { data } = await api.post('/auth/apple', { id_token: idToken });
       handleAuthSuccess(data, 'Apple');
     } catch (err) {
-      console.error('[Apple] sign-in error:', err);
       if (err?.error === 'popup_closed_by_user' || err?.error === 'user_cancelled_authorize') return;
       toast.error(err?.response?.data?.detail || err?.error || err?.message || 'Apple sign-in failed');
     } finally { setLoading(false); }
   };
-
-  const facebookSignIn = () => toast.info('Facebook Sign-In is not enabled (no client secret provided).');
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -307,19 +205,12 @@ export default function AuthPage({ mode }) {
               <Button variant="outline" size="sm" onClick={appleSignIn} disabled={!oauthCfg.apple?.enabled || loading} data-testid="auth-apple-btn">
                 <AppleIcon className="h-4 w-4 mr-1" /> Apple
               </Button>
-              <Button variant="outline" size="sm" onClick={microsoftSignIn} disabled={!oauthCfg.microsoft?.enabled || loading} data-testid="auth-microsoft-btn">
-                <svg className="h-3.5 w-3.5 mr-1" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
-                Microsoft
-              </Button>
               <Button variant="outline" size="sm" onClick={githubSignIn} disabled={!oauthCfg.github?.enabled || loading} data-testid="auth-github-btn">
                 <Github className="h-3.5 w-3.5 mr-1" /> GitHub
               </Button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" size="sm" onClick={linkedinSignIn} disabled={!oauthCfg.linkedin?.enabled || loading} data-testid="auth-linkedin-btn">
                 <Linkedin className="h-3.5 w-3.5 mr-1 text-[#0a66c2]" /> LinkedIn
               </Button>
-              <Button variant="outline" size="sm" onClick={facebookSignIn} data-testid="auth-facebook-btn" disabled>Facebook</Button>
             </div>
           </div>
 

@@ -142,16 +142,23 @@ async def enrich_once(max_prompts: int = 10) -> dict:
 
 
 def start(interval_hours: int = 4):
-    """Boot the background scheduler."""
+    """Boot the background scheduler.
+
+    Schedules the *first* run 30 s after server boot so the engine actually
+    begins enriching without waiting a full interval. Subsequent runs happen
+    on the configured cadence.
+    """
     global _scheduler
     if _scheduler and _scheduler.running:
         return
+    from datetime import datetime, timedelta, timezone
+    first_run = datetime.now(timezone.utc) + timedelta(seconds=30)
     _scheduler = AsyncIOScheduler(timezone="UTC")
     _scheduler.add_job(enrich_once, "interval", hours=interval_hours,
                        id="knowledge_engine", replace_existing=True,
-                       next_run_time=None)  # first run triggered manually
+                       next_run_time=first_run)
     _scheduler.start()
-    logger.info(f"KnowledgeEngine scheduler started (every {interval_hours}h)")
+    logger.info(f"KnowledgeEngine scheduler started — first run at {first_run.isoformat()}, then every {interval_hours}h")
 
 
 async def status() -> dict:

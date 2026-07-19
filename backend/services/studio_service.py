@@ -1,9 +1,12 @@
-"""AI Studio — text summarization and image generation via GPT-Image-1."""
+"""AI Studio — text summarization, image generation & Sora 2 video generation."""
 import os
 import logging
+import uuid
+from pathlib import Path
 from typing import List, Optional
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+from emergentintegrations.llm.openai.video_generation import OpenAIVideoGeneration
 from services.knowledge_retriever import retrieve, store
 from services.settings_service import get_setting
 from services.capability_manifest import with_capability
@@ -61,3 +64,53 @@ async def generate_image_bytes(prompt: str, quality: str = "low", n: int = 1) ->
         number_of_images=n,
         quality=quality,
     )
+
+
+
+# ================= SORA 2 VIDEO GENERATION =================
+VIDEO_OUT_DIR = Path(os.environ.get("BACKEND_UPLOADS_DIR", "/app/backend/uploads")) / "videos"
+VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Allowed sizes / durations per Sora 2 spec
+_ALLOWED_SIZES = {"1280x720", "1792x1024", "1024x1792", "1024x1024"}
+_ALLOWED_DURATIONS = {4, 8, 12}
+
+
+async def generate_video(prompt: str, model: str = "sora-2", size: str = "1280x720",
+                         duration: int = 4) -> dict:
+    """Generate a video via Sora 2 through the Emergent proxy. Returns
+    ``{filename, path, url_rel, size, duration, model}``. Raises on failure so
+    the caller can refund credits.
+    """
+    if size not in _ALLOWED_SIZES:
+        raise ValueError(f"Unsupported size {size}; use one of {sorted(_ALLOWED_SIZES)}")
+    if duration not in _ALLOWED_DURATIONS:
+        raise ValueError(f"Unsupported duration {duration}; use one of {sorted(_ALLOWED_DURATIONS)}")
+    if model not in ("sora-2", "sora-2-pro"):
+        raise ValueError(f"Unsupported model {model}")
+
+    # Sora 2 generation can take 2–5 min; the SDK blocks so we run it in a
+    # worker thread to keep the FastAPI event loop responsive.
+    import asyncio as _aio
+    def _run():
+        gen = OpenAIVideoGeneration(api_key=EMERGENT_LLM_KEY)
+        max_wait = 900 if (duration == 12 or model == "sora-2-pro") else 600
+        return gen.text_to_video(prompt=prompt, model=model, size=size,
+                                 duration=duration, max_wait_time=max_wait)
+
+    video_bytes = await _aio.to_thread(_run)
+    if not video_bytes:
+        raise RuntimeError("Sora returned empty video bytes")
+
+    filename = f"sora_{uuid.uuid4().hex}.mp4"
+    out = VIDEO_OUT_DIR / filename
+    out.write_bytes(video_bytes)
+    return {
+        "filename": filename,
+        "path": str(out),
+        "url_rel": f"/api/media-static/videos/{filename}",
+        "size": size,
+        "duration": duration,
+        "model": model,
+        "bytes": len(video_bytes),
+    }

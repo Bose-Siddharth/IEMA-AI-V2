@@ -287,38 +287,178 @@ function UsersPanel() {
 
 function PacksPanel() {
   const [packs, setPacks] = useState([]);
-  useEffect(() => { api.get('/packs/all').then((r) => setPacks(r.data.items)); }, []);
+  const [editing, setEditing] = useState(null);   // pack row being edited or 'new'
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api.get('/packs/all').then((r) => setPacks(r.data.items));
+  useEffect(() => { load(); }, []);
+
+  const save = async (payload, id) => {
+    setBusy(true);
+    try {
+      if (id) await api.patch(`/packs/${id}`, payload);
+      else    await api.post('/packs/', payload);
+      toast.success(id ? 'Pack updated' : 'Pack created');
+      setEditing(null);
+      await load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Save failed');
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (p) => {
+    if (!window.confirm(`Delete ${p.name} (${p.currency}) — this can\u2019t be undone.`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/packs/${p.id}`);
+      toast.success('Pack deleted');
+      await load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Delete failed');
+    } finally { setBusy(false); }
+  };
+
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-xs uppercase text-muted-foreground border-b border-border">
-            <tr>
-              <th className="text-left px-4 py-2">Name</th>
-              <th className="text-left px-4 py-2">Price</th>
-              <th className="text-left px-4 py-2">Credits</th>
-              <th className="text-left px-4 py-2">Bonus</th>
-              <th className="text-left px-4 py-2">Currency</th>
-              <th className="text-left px-4 py-2">Popular</th>
-              <th className="text-left px-4 py-2">Visible</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {packs.map((p) => (
-              <tr key={p.id}>
-                <td className="px-4 py-3 font-medium">{p.name}</td>
-                <td className="px-4 py-3 font-mono">{p.currency === 'usd' ? '$' : '₹'}{p.price}</td>
-                <td className="px-4 py-3 font-mono">{p.credits}</td>
-                <td className="px-4 py-3 font-mono">{p.bonus_credits}</td>
-                <td className="px-4 py-3 uppercase text-xs">{p.currency}</td>
-                <td className="px-4 py-3">{p.is_popular ? '★' : ''}</td>
-                <td className="px-4 py-3">{p.is_visible ? '✓' : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {packs.length} pack{packs.length !== 1 ? 's' : ''} — edit any field or create new ones. Changes take effect immediately for buyers.
+        </p>
+        <Button size="sm" onClick={() => setEditing('new')} data-testid="admin-pack-new-btn">
+          <Plus className="h-4 w-4 mr-1" /> New pack
+        </Button>
       </div>
+
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase text-muted-foreground border-b border-border">
+              <tr>
+                <th className="text-left px-4 py-2">Name</th>
+                <th className="text-left px-4 py-2">Slug</th>
+                <th className="text-left px-4 py-2">Price</th>
+                <th className="text-left px-4 py-2">Credits</th>
+                <th className="text-left px-4 py-2">Bonus</th>
+                <th className="text-left px-4 py-2">Currency</th>
+                <th className="text-left px-4 py-2">Popular</th>
+                <th className="text-left px-4 py-2">Visible</th>
+                <th className="text-left px-4 py-2">Order</th>
+                <th className="text-left px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {packs.map((p) => (
+                <tr key={p.id} className="hover:bg-muted/40">
+                  <td className="px-4 py-3 font-medium">{p.name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.slug}</td>
+                  <td className="px-4 py-3 font-mono">{p.currency === 'usd' ? '$' : '\u20b9'}{p.price}</td>
+                  <td className="px-4 py-3 font-mono">{p.credits}</td>
+                  <td className="px-4 py-3 font-mono">{p.bonus_credits}</td>
+                  <td className="px-4 py-3 uppercase text-xs">{p.currency}</td>
+                  <td className="px-4 py-3">{p.is_popular ? '\u2605' : ''}</td>
+                  <td className="px-4 py-3">{p.is_visible ? '\u2713' : '\u2014'}</td>
+                  <td className="px-4 py-3 font-mono">{p.sort_order}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(p)}
+                            data-testid={`admin-pack-edit-${p.slug}`}>Edit</Button>
+                    <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600"
+                            onClick={() => remove(p)} disabled={busy}
+                            data-testid={`admin-pack-delete-${p.slug}`}>Delete</Button>
+                  </td>
+                </tr>
+              ))}
+              {packs.length === 0 && (
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
+                  No packs — create one to make it purchasable.
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editing && (
+        <PackFormDialog pack={editing === 'new' ? null : editing}
+                        onClose={() => setEditing(null)}
+                        onSave={save} busy={busy} />
+      )}
     </div>
+  );
+}
+
+function PackFormDialog({ pack, onClose, onSave, busy }) {
+  const [form, setForm] = useState({
+    name: pack?.name || '',
+    slug: pack?.slug || '',
+    description: pack?.description || '',
+    price: pack?.price ?? 0,
+    currency: pack?.currency || 'usd',
+    credits: pack?.credits ?? 0,
+    bonus_credits: pack?.bonus_credits ?? 0,
+    is_popular: !!pack?.is_popular,
+    is_visible: pack?.is_visible !== false,
+    sort_order: pack?.sort_order ?? 99,
+  });
+  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = (e) => {
+    e.preventDefault();
+    const payload = {
+      ...form,
+      price: parseFloat(form.price) || 0,
+      credits: parseFloat(form.credits) || 0,
+      bonus_credits: parseFloat(form.bonus_credits) || 0,
+      sort_order: parseInt(form.sort_order) || 99,
+    };
+    onSave(payload, pack?.id);
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg" data-testid="admin-pack-form">
+        <DialogHeader>
+          <DialogTitle>{pack ? `Edit ${pack.name}` : 'New credit pack'}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={submit} className="grid grid-cols-2 gap-3">
+          <div className="space-y-1 col-span-1"><Label>Name</Label>
+            <Input value={form.name} onChange={(e) => set('name')(e.target.value)} required data-testid="pack-form-name" /></div>
+          <div className="space-y-1 col-span-1"><Label>Slug</Label>
+            <Input value={form.slug} onChange={(e) => set('slug')(e.target.value)} required
+                   disabled={!!pack} placeholder="starter-usd" data-testid="pack-form-slug" /></div>
+          <div className="space-y-1 col-span-2"><Label>Description</Label>
+            <Input value={form.description} onChange={(e) => set('description')(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Price</Label>
+            <Input type="number" step="0.01" value={form.price}
+                   onChange={(e) => set('price')(e.target.value)} data-testid="pack-form-price" /></div>
+          <div className="space-y-1"><Label>Currency</Label>
+            <select className="h-10 w-full rounded-md border border-input bg-background px-3"
+                    value={form.currency} onChange={(e) => set('currency')(e.target.value)} disabled={!!pack}>
+              <option value="usd">USD</option><option value="inr">INR</option>
+            </select></div>
+          <div className="space-y-1"><Label>Credits</Label>
+            <Input type="number" value={form.credits}
+                   onChange={(e) => set('credits')(e.target.value)} data-testid="pack-form-credits" /></div>
+          <div className="space-y-1"><Label>Bonus credits</Label>
+            <Input type="number" value={form.bonus_credits}
+                   onChange={(e) => set('bonus_credits')(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Sort order</Label>
+            <Input type="number" value={form.sort_order}
+                   onChange={(e) => set('sort_order')(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Visible / popular</Label>
+            <div className="flex items-center gap-4 pt-2 text-sm">
+              <label className="flex items-center gap-1.5"><input type="checkbox" checked={form.is_visible}
+                onChange={(e) => set('is_visible')(e.target.checked)} /> Visible</label>
+              <label className="flex items-center gap-1.5"><input type="checkbox" checked={form.is_popular}
+                onChange={(e) => set('is_popular')(e.target.checked)} /> Popular</label>
+            </div>
+          </div>
+          <DialogFooter className="col-span-2 mt-2">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy} data-testid="pack-form-save">
+              {busy ? 'Saving\u2026' : (pack ? 'Save changes' : 'Create pack')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

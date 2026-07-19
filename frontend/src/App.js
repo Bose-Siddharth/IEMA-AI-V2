@@ -31,7 +31,7 @@ function App() {
       <ThemeProvider>
         <BrowserRouter>
           <Toaster position="top-right" richColors />
-          <MsalRedirectHandler />
+          {/* Microsoft OAuth removed */}
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<AuthPage mode="login" />} />

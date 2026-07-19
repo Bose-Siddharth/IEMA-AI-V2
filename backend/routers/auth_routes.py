@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from middleware.security import limiter
 from bson import ObjectId
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from models import (
     RegisterRequest, LoginRequest, RefreshRequest, TokenPair, UserPublic,
     OAuthCodeRequest, GoogleIdTokenRequest, IdTokenRequest, UserUpdateRequest, User,
@@ -613,32 +613,115 @@ async def verify_email(req: VerifyEmailRequest, user: User = Depends(get_current
     return {"ok": True, "verified": True}
 
 
-# ================= PASSWORD RESET =================
+# ================= PASSWORD RESET (2FA via email OTP + short-lived token) =================
+# Flow:
+#   1. POST /auth/forgot-password { email }  → emails a 6-digit OTP.
+#   2. POST /auth/verify-reset-otp { email, otp } → returns short-lived
+#      reset_token (server-side JWT-less random token, 10-min TTL).
+#   3. POST /auth/reset-password { token, new_password } → sets new password.
+#
+# The OTP step is the second factor. We deliberately do NOT include the
+# reset link in the email anymore — the OTP has to be manually re-entered on
+# the same device that initiated the flow, blocking email-based token theft.
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest):
-    """Always returns ok=true to avoid user enumeration. Sends email only if user exists."""
+    """Always returns ok=true to avoid user enumeration. Emails a 6-digit OTP
+    if the user exists and has a password-based account."""
     doc = await users_col.find_one({"email": req.email.lower()})
     if doc and doc.get("password_hash"):
         user = User.from_mongo(doc)
-        # Invalidate any prior unused tokens for this user
-        await reset_tokens_col.update_many({"user_id": user.id, "used": False}, {"$set": {"used": True}})
-        token = secrets.token_urlsafe(32)
-        expires_at = (now_utc() + timedelta(hours=1)).isoformat()
+        # Invalidate any prior unused OTPs for this user
+        await reset_tokens_col.update_many(
+            {"user_id": user.id, "used": False, "kind": "reset_otp"},
+            {"$set": {"used": True}},
+        )
+        otp = f"{secrets.randbelow(1_000_000):06d}"
+        otp_hash = hash_password(otp)   # bcrypt — resists offline brute force
+        expires_at = (now_utc() + timedelta(minutes=10)).isoformat()
         await reset_tokens_col.insert_one({
             "user_id": user.id,
-            "token": token,
+            "email": user.email,
+            "otp_hash": otp_hash,
+            "attempts": 0,
+            "kind": "reset_otp",
             "expires_at": expires_at,
             "used": False,
             "created_at": now_iso(),
         })
-        reset_url = f"{APP_URL}/reset-password?token={token}"
-        await send_email(user.email, "Reset your IEMA.ai password", reset_password_template(user.name, reset_url))
+        try:
+            from services.email_service import reset_otp_template
+            body = reset_otp_template(user.name, otp)
+        except Exception:
+            body = f"Your IEMA.ai password reset code is: {otp}\nThis code expires in 10 minutes."
+        await send_email(user.email, "Your IEMA.ai reset code", body)
     return {"ok": True}
+
+
+class VerifyResetOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=4, max_length=8)
+
+
+@router.post("/verify-reset-otp")
+async def verify_reset_otp(req: VerifyResetOtpRequest):
+    doc = await reset_tokens_col.find_one({
+        "email": req.email.lower(),
+        "kind": "reset_otp",
+        "used": False,
+    })
+    if not doc:
+        raise HTTPException(400, "Invalid or expired code")
+    if doc.get("attempts", 0) >= 5:
+        await reset_tokens_col.update_one({"_id": doc["_id"]}, {"$set": {"used": True}})
+        raise HTTPException(429, "Too many failed attempts. Request a new code.")
+    try:
+        expires = datetime.fromisoformat(doc["expires_at"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if now_utc() > expires:
+            raise HTTPException(400, "Code expired. Request a new one.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Invalid code state")
+
+    if not verify_password(req.otp, doc["otp_hash"]):
+        await reset_tokens_col.update_one({"_id": doc["_id"]}, {"$inc": {"attempts": 1}})
+        raise HTTPException(400, "Invalid code")
+
+    # OTP passed → issue a short-lived token the reset step will consume.
+    reset_token = secrets.token_urlsafe(32)
+    expires_at = (now_utc() + timedelta(minutes=10)).isoformat()
+    await reset_tokens_col.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {
+            "used": True,
+            "token": reset_token,
+            "token_expires_at": expires_at,
+            "verified_at": now_iso(),
+        }},
+    )
+    # Insert a companion row keyed by the reset token so /reset-password can
+    # find it without needing the email again.
+    await reset_tokens_col.insert_one({
+        "user_id": doc["user_id"],
+        "token": reset_token,
+        "kind": "reset_token",
+        "expires_at": expires_at,
+        "used": False,
+        "created_at": now_iso(),
+    })
+    return {"ok": True, "reset_token": reset_token}
 
 
 @router.post("/reset-password")
 async def reset_password(req: ResetPasswordRequest):
-    doc = await reset_tokens_col.find_one({"token": req.token, "used": False})
+    doc = await reset_tokens_col.find_one({
+        "token": req.token,
+        "used": False,
+        # Accept both the legacy link-only tokens and the new OTP-issued ones
+        "$or": [{"kind": "reset_token"}, {"kind": {"$exists": False}}],
+    })
     if not doc:
         raise HTTPException(400, "Invalid or already-used token")
     try:
@@ -662,14 +745,18 @@ async def reset_password(req: ResetPasswordRequest):
 
 @router.get("/oauth-config")
 async def oauth_config():
-    """Public config so frontend knows which OAuth providers are enabled."""
+    """Public config so frontend knows which OAuth providers are enabled.
+
+    Microsoft and Facebook are intentionally excluded from the public config
+    for this launch — Microsoft's OAuth flow has not been stabilised against
+    our reverse proxy, and we do not have Facebook Login approved in Meta
+    for Developers. Re-add them here once each is verified end-to-end.
+    """
     return {
         "google": {"enabled": bool(GOOGLE_CLIENT_ID), "client_id": GOOGLE_CLIENT_ID},
-        "microsoft": {"enabled": bool(MICROSOFT_CLIENT_ID), "client_id": MICROSOFT_CLIENT_ID},
         "apple": {"enabled": bool(APPLE_CLIENT_ID), "client_id": APPLE_CLIENT_ID},
         "github": {"enabled": bool(GITHUB_CLIENT_ID), "client_id": GITHUB_CLIENT_ID},
         "linkedin": {"enabled": bool(LINKEDIN_CLIENT_ID), "client_id": LINKEDIN_CLIENT_ID},
-        "facebook": {"enabled": False, "reason": "not configured"},
     }
 
 

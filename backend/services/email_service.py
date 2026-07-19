@@ -92,6 +92,21 @@ def reset_password_template(name: str, reset_url: str) -> str:
     return _wrap("Reset your password", body)
 
 
+def reset_otp_template(name: str, otp: str) -> str:
+    """One-time reset code (6 digits). Second factor before we let the user
+    set a new password. Deliberately does NOT include a clickable reset link
+    — the code must be re-entered on the same device that initiated the
+    request, blocking email-based takeover."""
+    body = f"""<p style="color:#a1a1aa;line-height:1.6">Hi {name},</p>
+<p style="color:#a1a1aa;line-height:1.6">Use the code below to reset your IEMA.ai password. Do NOT share this code with anyone.</p>
+<div style="text-align:center;margin:28px 0">
+  <div style="display:inline-block;background:#0a0a0f;border:1px solid #27272a;border-radius:12px;padding:20px 36px;font-family:'SFMono-Regular',Consolas,monospace;font-size:38px;letter-spacing:12px;color:#3b82f6;font-weight:600">{otp}</div>
+</div>
+<p style="color:#71717a;font-size:13px;line-height:1.6">This code expires in <b>10 minutes</b> and can only be used once. If you didn't request a reset, ignore this email — your password stays the same.</p>"""
+    return _wrap("Your IEMA.ai reset code", body)
+
+
+
 def welcome_template(name: str) -> str:
     body = f"""<p style="color:#a1a1aa;line-height:1.6">Hi {name},</p>
 <p style="color:#a1a1aa;line-height:1.6">Welcome to IEMA.ai — one workspace to think, learn, build and grow with AI. You've been credited with <b style="color:#3b82f6">100 welcome credits</b> to start, plus <b>20 free credits every day</b>.</p>
