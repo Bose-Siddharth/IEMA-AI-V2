@@ -33,7 +33,7 @@ export default function Studio() {
           </div>
           <div>
             <h1 className="font-display text-3xl font-semibold tracking-tight">AI Studio</h1>
-            <p className="text-sm text-muted-foreground">Summarize text or any web link, generate images, or produce short videos with Sora 2.</p>
+            <p className="text-sm text-muted-foreground">Summarize text or any web link, generate images, or produce short videos with Google Veo 3.1.</p>
           </div>
         </div>
       </div>

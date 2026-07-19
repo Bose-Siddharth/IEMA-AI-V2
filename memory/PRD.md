@@ -230,3 +230,18 @@ services/
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`
+
+## Changelog (Feb 2026)
+- **2026-02-19** — Added public `GET /api/payments/plans` (returns non-free plans);
+  web + mobile Billing screens now hit it instead of the admin-only route so
+  normal users see recurring subscription plans (Pro, Pro Annual, Team,
+  Team Annual) alongside the top-up packs. Fixes P2 "how do users subscribe?".
+- **2026-02-19** — Mobile Studio VideoGen: added missing `aspect` state,
+  sends `aspect_ratio` (16:9 / 9:16 / 1:1) to `/api/studio/video` matching the
+  Veo 3.1 schema. Previously crashed on tab open.
+- **2026-02-19** — Rotated `GEMINI_API_KEY` to new Google AI Studio key
+  (`AQ.Ab8RN6...`). Auth succeeds; account is currently out of prepay credits
+  (429 RESOURCE_EXHAUSTED). Video generation will work as soon as the
+  Google AI Studio project has billing credits.
+- Updated Studio page copy: "Sora 2" → "Google Veo 3.1".
+

@@ -117,7 +117,7 @@ function SubscribeSection() {
   const [plans, setPlans] = useState([]);
   const [busy, setBusy] = useState(null);
   useEffect(() => {
-    api.get('/admin/plans').then(r => setPlans((r.data.items || []).filter(p => !p.is_free))).catch(() => {});
+    api.get('/payments/plans').then(r => setPlans(r.data.items || [])).catch(() => {});
   }, []);
   const subscribe = async (plan_id) => {
     setBusy(plan_id);

@@ -174,6 +174,16 @@ async def verify_razorpay(req: RazorpayVerifyRequest, user: User = Depends(get_c
     return {"ok": True, "credits": tx.credits}
 
 
+@router.get("/plans")
+async def list_public_plans():
+    """Public list of subscription plans (non-free) shown on the Billing page.
+    Admin-only `/admin/plans` returns everything including free — this endpoint
+    is what normal users hit."""
+    from services.pricing_engine import list_plans
+    items = await list_plans()
+    return {"items": [p for p in items if not p.get("is_free")]}
+
+
 @router.get("/history")
 async def payment_history(user: User = Depends(get_current_user), limit: int = 50):
     cursor = payment_transactions_col.find({"user_id": user.id}).sort("created_at", -1).limit(limit)

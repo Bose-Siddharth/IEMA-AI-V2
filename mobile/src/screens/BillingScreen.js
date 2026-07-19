@@ -35,11 +35,11 @@ export default function BillingScreen({ navigation }) {
     try {
       const [packsRes, plansRes] = await Promise.allSettled([
         api.get('/packs/?currency=usd'),
-        api.get('/admin/plans'),
+        api.get('/payments/plans'),
       ]);
       if (packsRes.status === 'fulfilled') setPacks(packsRes.value.data.items || []);
       if (plansRes.status === 'fulfilled') {
-        setPlans((plansRes.value.data.items || []).filter((p) => !p.is_free));
+        setPlans(plansRes.value.data.items || []);
       }
     } finally { setLoading(false); }
   }, []);

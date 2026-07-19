@@ -213,6 +213,7 @@ function VideoGen() {
   const [style, setStyle] = useState(state.style || 'cinematic');
   const [motion, setMotion] = useState(state.motion || 'medium');
   const [model, setModel] = useState(state.model || 'veo-fast');
+  const [aspect, setAspect] = useState(state.aspect || '16:9');
   const [duration, setDuration] = useState(state.duration || 4);
 
   const busy = state.status === 'running';
@@ -221,12 +222,12 @@ function VideoGen() {
   const run = async () => {
     if (studioStore.anyRunning()) return;
     if (prompt.trim().length < 3) return;
-    // Roll aesthetic controls into the prompt — Sora reads free-form English.
+    // Roll aesthetic controls into the prompt — Veo reads free-form English.
     const fullPrompt = `${prompt.trim()}. Style: ${style}. Camera motion: ${motion}. Cohesive, detailed, high production value.`;
-    studioStore.begin('vid', { prompt, style, motion, model, duration });
+    studioStore.begin('vid', { prompt, style, motion, model, aspect, duration });
     try {
       const { data } = await api.post('/studio/video', {
-        prompt: fullPrompt, model, duration, size: '1280x720',
+        prompt: fullPrompt, model, duration, aspect_ratio: aspect,
       });
       studioStore.complete('vid', { result: data });
     } catch (e) {
