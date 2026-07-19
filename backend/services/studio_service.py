@@ -94,13 +94,28 @@ async def generate_video(prompt: str, model: str = "sora-2", size: str = "1280x7
     import asyncio as _aio
     def _run():
         gen = OpenAIVideoGeneration(api_key=EMERGENT_LLM_KEY)
-        max_wait = 900 if (duration == 12 or model == "sora-2-pro") else 600
-        return gen.text_to_video(prompt=prompt, model=model, size=size,
-                                 duration=duration, max_wait_time=max_wait)
+        # Bump the timeout so the SDK's inner polling actually sees a
+        # completed job — Sora frequently exceeds the default 5-minute cap
+        # for 12-second Pro clips.
+        max_wait = 1500 if (duration == 12 or model == "sora-2-pro") else 900
+        try:
+            return gen.text_to_video(prompt=prompt, model=model, size=size,
+                                     duration=duration, max_wait_time=max_wait)
+        except Exception as ex:
+            logger.exception(f"Sora SDK raised: {ex}")
+            # Bubble up so the caller can surface a specific error and refund.
+            raise RuntimeError(str(ex) or "Sora generation raised without a message")
 
     video_bytes = await _aio.to_thread(_run)
     if not video_bytes:
-        raise RuntimeError("Sora returned empty video bytes")
+        # This branch means the SDK completed but didn't return bytes — usually
+        # a content-policy rejection, a model-availability blip, or the Emergent
+        # proxy queue backing off. Surface a helpful message; caller refunds.
+        raise RuntimeError(
+            "Sora returned no video bytes. Common causes: content policy blocked the prompt, "
+            "the model tier is not enabled on your key, or Sora is momentarily overloaded. "
+            "Please try again or use a slightly different prompt."
+        )
 
     filename = f"sora_{uuid.uuid4().hex}.mp4"
     out = VIDEO_OUT_DIR / filename

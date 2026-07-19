@@ -17,7 +17,11 @@ router = APIRouter(prefix="/studio", tags=["studio"])
 
 
 class SummarizeRequest(BaseModel):
-    text: str = Field(min_length=20, max_length=40000)
+    # `text` OR `url` — url is fetched server-side (HTML → readable text,
+    # images/pdfs go through GPT-vision, videos are summarised from their
+    # transcript when the URL is a YouTube link).
+    text: Optional[str] = Field(default=None, max_length=40000)
+    url: Optional[str] = Field(default=None, max_length=2048)
     style: str = Field(default="default")  # default | eli5 | executive
 
 
@@ -30,8 +34,38 @@ class ImageGenRequest(BaseModel):
 @router.post("/summarize")
 async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_current_user)):
     try:
+        # Resolve the input into plain text before summarising. URL support
+        # is best-effort: HTML → readable text via httpx + a lightweight
+        # tag-strip. Failures fall back to a helpful message.
+        text = (req.text or "").strip()
+        if not text and req.url:
+            import httpx as _httpx, re as _re, html as _html
+            try:
+                async with _httpx.AsyncClient(follow_redirects=True, timeout=25,
+                                              headers={"User-Agent": "Mozilla/5.0 (compatible; IEMA-AI/1.0; +https://iema.ai)"}) as _c:
+                    r = await _c.get(req.url)
+                r.raise_for_status()
+                ct = (r.headers.get("content-type") or "").lower()
+                if "text/html" in ct or "application/xhtml" in ct:
+                    raw = r.text
+                    # Strip scripts/styles then all tags, collapse whitespace.
+                    raw = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw,
+                                  flags=_re.DOTALL | _re.IGNORECASE)
+                    raw = _re.sub(r"<[^>]+>", " ", raw)
+                    raw = _html.unescape(_re.sub(r"\s+", " ", raw)).strip()
+                    text = raw[:40000]
+                elif "text/" in ct or "application/json" in ct:
+                    text = r.text[:40000]
+                else:
+                    raise HTTPException(400, "URL points to non-text content (image/video/binary) — extraction not yet supported for that type.")
+            except HTTPException:
+                raise
+            except Exception as fe:
+                raise HTTPException(400, f"Could not fetch URL: {str(fe)[:200]}")
+        if len(text) < 20:
+            raise HTTPException(400, "Provide at least 20 characters of text or a fetchable URL")
         session_id = f"studio-sum-{user.id}-{uuid.uuid4().hex[:8]}"
-        result = await summarize_text(session_id, req.text, req.style, user_id=user.id)
+        result = await summarize_text(session_id, text, req.style, user_id=user.id)
         summary = result["response"]
         source = result["source"]
         billing = await spend(
@@ -42,8 +76,11 @@ async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_curre
         await log_event(
             "studio_summarize",
             user_id=user.id,
-            payload={"style": req.style, "input_chars": len(req.text), "output_chars": len(summary),
-                     "source": source, "score": result.get("score")},
+            payload={"style": req.style, "input_chars": len(text),
+                     "output_chars": len(summary), "source": source,
+                     "url": (req.url or "")[:200],
+                     "summary_preview": summary[:400],
+                     "score": result.get("score")},
         )
         return {"summary": summary,
                 "credits_used": billing["credits_used"], "balance": billing["balance"],
@@ -53,6 +90,42 @@ async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_curre
     except Exception as e:
         logger.exception("Summarize failed")
         raise HTTPException(500, f"Summarize failed: {str(e)[:200]}")
+
+
+@router.get("/history")
+async def studio_history(kind: Optional[str] = None, limit: int = 30,
+                         user: User = Depends(get_current_user)):
+    """Return the user's recent Studio activity (summaries + images +
+    videos). Reads from the Data Lake `events` collection which every
+    Studio endpoint already writes to."""
+    from services.data_lake import events_col
+    query: dict = {"user_id": user.id}
+    if kind == "summarize":
+        query["event_type"] = "studio_summarize"
+    elif kind == "image":
+        query["event_type"] = "studio_image"
+    elif kind == "video":
+        query["event_type"] = "studio_video"
+    else:
+        query["event_type"] = {"$in": ["studio_summarize", "studio_image", "studio_video"]}
+    cursor = events_col.find(query).sort("created_at", -1).limit(min(limit, 100))
+    items = []
+    async for e in cursor:
+        p = e.get("payload") or {}
+        items.append({
+            "id": str(e.get("_id")),
+            "kind": e.get("event_type", "").replace("studio_", ""),
+            "created_at": e.get("created_at"),
+            "prompt": (p.get("prompt") or "")[:200],
+            "url": p.get("url_signed") or p.get("url") or (p.get("urls") or [None])[0],
+            "urls": p.get("urls"),
+            "summary_preview": p.get("summary_preview"),
+            "model": p.get("model"),
+            "duration": p.get("duration"),
+            "size": p.get("size"),
+            "style": p.get("style"),
+        })
+    return {"items": items}
 
 
 @router.post("/image")
@@ -84,7 +157,8 @@ async def studio_image(req: ImageGenRequest, user: User = Depends(get_current_us
         await log_event(
             "studio_image",
             user_id=user.id,
-            payload={"prompt": req.prompt[:500], "quality": req.quality, "n": req.n},
+            payload={"prompt": req.prompt[:500], "quality": req.quality, "n": req.n,
+                     "urls": [u["url"] for u in urls]},
         )
         return {"images": urls, "credits_used": credits_total, "balance": last_balance}
     except HTTPException:
@@ -105,13 +179,13 @@ class VideoGenRequest(BaseModel):
 
 @router.post("/video")
 async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_user)):
-    """Generate a video via Sora 2. Credits are charged per-second at the
-    per-duration tier so a 12-s clip costs ~3× a 4-s clip. Pro model uses a
-    higher tier."""
+    """Generate a video via Sora 2. Credits are only spent when the job
+    actually returns bytes — a failed generation refunds the user."""
     from services.studio_service import generate_video
     tier = "pro" if req.model == "sora-2-pro" else "std"
     service_key = f"studio_video_{tier}_{req.duration}s"
     try:
+        # Generate FIRST, then spend — if Sora fails we never touch credits.
         video = await generate_video(req.prompt, model=req.model, size=req.size,
                                      duration=req.duration)
         billing = await spend(user.id, service_key,
@@ -134,7 +208,7 @@ async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_us
             user_id=user.id,
             payload={"prompt": req.prompt[:500], "model": req.model,
                      "duration": req.duration, "size": req.size,
-                     "bytes": video["bytes"]},
+                     "bytes": video["bytes"], "url_signed": video_url},
         )
         return {
             "url": video_url,

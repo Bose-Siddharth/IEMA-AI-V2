@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -10,109 +10,124 @@ import { colors, spacing, radii, fontSize } from '../theme';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// Same OAuth clients as web. Origin-registration in Google Cloud/Azure/Apple must include this app's
-// deep-link scheme (iemaai://) for popup returns.
-const GOOGLE_CLIENT_ID = '818667754847-v09vd70ssgv091rr0epotshvs6ib5krt.apps.googleusercontent.com';
-const MICROSOFT_CLIENT_ID = '5de6c39a-bf40-4f42-88d8-f755a7797cc9';
-const APPLE_SERVICE_ID = 'com.iemaai.app.auth0';
-
 const GOOGLE_DISCOVERY = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
 };
-const MS_DISCOVERY = {
-  authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
-  tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+const GITHUB_DISCOVERY = {
+  authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+  tokenEndpoint: 'https://github.com/login/oauth/access_token',
+};
+const LINKEDIN_DISCOVERY = {
+  authorizationEndpoint: 'https://www.linkedin.com/oauth/v2/authorization',
+  tokenEndpoint: 'https://www.linkedin.com/oauth/v2/accessToken',
 };
 
+/**
+ * Mobile social sign-in. Google, GitHub and LinkedIn all use the plain
+ * OAuth 2.0 code flow — we forward the `code` to the same backend endpoints
+ * used by the web app (`/api/auth/{google-verify|github|linkedin}`), which
+ * already know how to complete the exchange. Apple stays on the native
+ * StoreKit flow via `expo-apple-authentication` (App Store required on iOS).
+ *
+ * Microsoft and Facebook are intentionally excluded — Microsoft's flow has
+ * not been stabilised behind our reverse proxy and Facebook is not
+ * whitelisted in Meta for Developers.
+ */
 export default function SocialAuthButtons() {
   const dispatch = useDispatch();
   const [loading, setLoading] = useState(null);
+  const [oauthCfg, setOauthCfg] = useState({ google: {}, apple: {}, github: {}, linkedin: {} });
+
+  useEffect(() => {
+    api.get('/auth/oauth-config').then((r) => setOauthCfg(r.data || {})).catch(() => {});
+  }, []);
+
   const redirectUri = AuthSession.makeRedirectUri({ scheme: 'iemaai', path: 'auth' });
+  const finish = (data) => { dispatch(setAuth(data)); };
 
-  const finish = (data, provider) => {
-    dispatch(setAuth(data));
-  };
-
-  const signInGoogle = async () => {
-    setLoading('google');
-    try {
-      const request = new AuthSession.AuthRequest({
-        clientId: GOOGLE_CLIENT_ID,
-        redirectUri,
-        responseType: AuthSession.ResponseType.IdToken,
-        scopes: ['openid', 'profile', 'email'],
-        extraParams: { nonce: Math.random().toString(36).slice(2) },
-      });
-      const result = await request.promptAsync(GOOGLE_DISCOVERY);
-      if (result.type !== 'success') return;
-      const idToken = result.params?.id_token;
-      if (!idToken) { Alert.alert('Google', 'No id_token returned'); return; }
-      const { data } = await api.post('/auth/google-verify', { credential: idToken });
-      finish(data, 'Google');
-    } catch (e) {
-      Alert.alert('Google sign-in failed', e?.response?.data?.detail || e?.message || 'Try again');
+  const withProvider = async (provider, run) => {
+    if (loading) return;
+    setLoading(provider);
+    try { await run(); }
+    catch (e) {
+      if (e?.code === 'ERR_CANCELED' || e?.type === 'cancel') return;
+      Alert.alert(`${provider} sign-in failed`, e?.response?.data?.detail || e?.message || 'Try again');
     } finally { setLoading(null); }
   };
 
-  const signInMicrosoft = async () => {
-    setLoading('microsoft');
-    try {
-      const request = new AuthSession.AuthRequest({
-        clientId: MICROSOFT_CLIENT_ID,
-        redirectUri,
-        responseType: AuthSession.ResponseType.Code,
-        scopes: ['openid', 'profile', 'email', 'offline_access'],
-        usePKCE: true,
-        extraParams: { prompt: 'select_account' },
-      });
-      const result = await request.promptAsync(MS_DISCOVERY);
-      if (result.type !== 'success') return;
-      const code = result.params?.code;
-      // Exchange code for tokens client-side (SPA-style PKCE)
-      const tokenRes = await AuthSession.exchangeCodeAsync({
-        clientId: MICROSOFT_CLIENT_ID,
-        code,
-        redirectUri,
-        extraParams: { code_verifier: request.codeVerifier },
-      }, MS_DISCOVERY);
-      const idToken = tokenRes.idToken;
-      if (!idToken) { Alert.alert('Microsoft', 'No id_token from Microsoft'); return; }
-      const { data } = await api.post('/auth/microsoft-verify', { id_token: idToken });
-      finish(data, 'Microsoft');
-    } catch (e) {
-      Alert.alert('Microsoft sign-in failed', e?.response?.data?.detail || e?.message || 'Try again');
-    } finally { setLoading(null); }
-  };
+  const signInGoogle = () => withProvider('google', async () => {
+    if (!oauthCfg.google?.enabled) throw new Error('Google not configured');
+    const request = new AuthSession.AuthRequest({
+      clientId: oauthCfg.google.client_id,
+      redirectUri,
+      responseType: AuthSession.ResponseType.IdToken,
+      scopes: ['openid', 'profile', 'email'],
+      extraParams: { nonce: Math.random().toString(36).slice(2) },
+    });
+    const result = await request.promptAsync(GOOGLE_DISCOVERY);
+    if (result.type !== 'success') return;
+    const idToken = result.params?.id_token;
+    if (!idToken) throw new Error('No id_token from Google');
+    const { data } = await api.post('/auth/google-verify', { credential: idToken });
+    finish(data);
+  });
 
-  const signInApple = async () => {
-    setLoading('apple');
-    try {
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-      const idToken = credential.identityToken;
-      if (!idToken) { Alert.alert('Apple', 'No identity token'); return; }
-      const { data } = await api.post('/auth/apple', { id_token: idToken });
-      finish(data, 'Apple');
-    } catch (e) {
-      if (e.code === 'ERR_CANCELED') return;
-      Alert.alert('Apple sign-in failed', e?.response?.data?.detail || e?.message || 'Try again');
-    } finally { setLoading(null); }
-  };
+  const signInGithub = () => withProvider('github', async () => {
+    if (!oauthCfg.github?.enabled) throw new Error('GitHub not configured');
+    const request = new AuthSession.AuthRequest({
+      clientId: oauthCfg.github.client_id,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ['read:user', 'user:email'],
+    });
+    const result = await request.promptAsync(GITHUB_DISCOVERY);
+    if (result.type !== 'success') return;
+    const code = result.params?.code;
+    if (!code) throw new Error('No code from GitHub');
+    // Backend handles the client_secret + code exchange (GitHub disallows
+    // exchanging the code from a public client).
+    const { data } = await api.post('/auth/github', { code, redirect_uri: redirectUri });
+    finish(data);
+  });
 
-  const btn = (label, onPress, key, testID, disabled) => (
+  const signInLinkedIn = () => withProvider('linkedin', async () => {
+    if (!oauthCfg.linkedin?.enabled) throw new Error('LinkedIn not configured');
+    const request = new AuthSession.AuthRequest({
+      clientId: oauthCfg.linkedin.client_id,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ['openid', 'profile', 'email'],
+    });
+    const result = await request.promptAsync(LINKEDIN_DISCOVERY);
+    if (result.type !== 'success') return;
+    const code = result.params?.code;
+    if (!code) throw new Error('No code from LinkedIn');
+    const { data } = await api.post('/auth/linkedin', { code, redirect_uri: redirectUri });
+    finish(data);
+  });
+
+  const signInApple = () => withProvider('apple', async () => {
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+    const idToken = credential.identityToken;
+    if (!idToken) throw new Error('No identity token from Apple');
+    const { data } = await api.post('/auth/apple', { id_token: idToken });
+    finish(data);
+  });
+
+  const chip = (label, onPress, key, testID, disabled) => (
     <TouchableOpacity
       testID={testID}
       onPress={onPress}
       disabled={disabled || loading !== null}
       activeOpacity={0.85}
       style={{
-        flex: 1,
-        height: 44, borderRadius: radii.md,
+        flex: 1, height: 44, borderRadius: radii.md,
         borderWidth: 1, borderColor: colors.border,
         backgroundColor: colors.surface,
         alignItems: 'center', justifyContent: 'center',
@@ -130,13 +145,14 @@ export default function SocialAuthButtons() {
       <TouchableOpacity
         testID="social-google"
         onPress={signInGoogle}
-        disabled={loading !== null}
+        disabled={loading !== null || !oauthCfg.google?.enabled}
         activeOpacity={0.85}
         style={{
           height: 46, borderRadius: radii.md,
           borderWidth: 1, borderColor: colors.border,
           backgroundColor: colors.surface,
           flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+          opacity: oauthCfg.google?.enabled ? 1 : 0.5,
         }}
       >
         {loading === 'google'
@@ -145,10 +161,10 @@ export default function SocialAuthButtons() {
       </TouchableOpacity>
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         {Platform.OS === 'ios'
-          ? btn('Apple', signInApple, 'apple', 'social-apple')
-          : btn('Apple', () => Alert.alert('Apple Sign-In', 'Apple Sign-In requires iOS.'), 'apple', 'social-apple', true)}
-        {btn('Microsoft', signInMicrosoft, 'microsoft', 'social-microsoft')}
-        {btn('Facebook', () => Alert.alert('Facebook', 'Not enabled (no secret provided).'), 'facebook', 'social-facebook', true)}
+          ? chip('Apple', signInApple, 'apple', 'social-apple', !oauthCfg.apple?.enabled)
+          : chip('Apple', () => Alert.alert('Apple Sign-In', 'Apple Sign-In requires iOS.'), 'apple', 'social-apple', true)}
+        {chip('GitHub', signInGithub, 'github', 'social-github', !oauthCfg.github?.enabled)}
+        {chip('LinkedIn', signInLinkedIn, 'linkedin', 'social-linkedin', !oauthCfg.linkedin?.enabled)}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.md }}>
         <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />

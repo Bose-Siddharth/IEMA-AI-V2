@@ -119,3 +119,4 @@ mobile/.env
 *google-play-service*.json
 *firebase-adminsdk*.json
 *.pem
+frontend/node_modules/.cache/default-development/12.pack

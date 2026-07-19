@@ -1,13 +1,12 @@
-import { useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useCallback, useEffect, useState } from 'react';
 import api from '@/lib/api';
-import { setWalletBalance } from '@/store/slices/uiSlice';
+import { studioStore, useStudioStore } from '@/lib/studioStore';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Sparkles, ImageIcon, FileText, Download, Video as VideoIcon } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2, Sparkles, ImageIcon, FileText, Download, Video as VideoIcon, Link as LinkIcon, History as HistoryIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -22,7 +21,7 @@ export default function Studio() {
           </div>
           <div>
             <h1 className="font-display text-3xl font-semibold tracking-tight">AI Studio</h1>
-            <p className="text-sm text-muted-foreground">Summarize long text, generate images with GPT-Image-1, or produce videos with Sora 2.</p>
+            <p className="text-sm text-muted-foreground">Summarize text or any web link, generate images, or produce short videos with Sora 2.</p>
           </div>
         </div>
       </div>
@@ -31,239 +30,269 @@ export default function Studio() {
           <TabsTrigger value="summarize" data-testid="studio-tab-summarize"><FileText className="h-4 w-4 mr-2" />Summarize</TabsTrigger>
           <TabsTrigger value="image" data-testid="studio-tab-image"><ImageIcon className="h-4 w-4 mr-2" />Image</TabsTrigger>
           <TabsTrigger value="video" data-testid="studio-tab-video"><VideoIcon className="h-4 w-4 mr-2" />Video</TabsTrigger>
+          <TabsTrigger value="history" data-testid="studio-tab-history"><HistoryIcon className="h-4 w-4 mr-2" />History</TabsTrigger>
         </TabsList>
         <TabsContent value="summarize"><Summarize /></TabsContent>
         <TabsContent value="image"><ImageGen /></TabsContent>
         <TabsContent value="video"><VideoGen /></TabsContent>
+        <TabsContent value="history"><StudioHistory /></TabsContent>
       </Tabs>
     </div>
   );
 }
 
 function Summarize() {
-  const [text, setText] = useState('');
-  const [style, setStyle] = useState('default');
-  const [result, setResult] = useState('');
-  const [loading, setLoading] = useState(false);
-  const dispatch = useDispatch();
+  const state = useStudioStore('sum');
+  const [text, setText] = useState(state.text || '');
+  const [url, setUrl] = useState(state.url || '');
+  const [style, setStyle] = useState(state.style || 'default');
+  const busy = state.status === 'running';
+  const otherBusy = studioStore.anyRunning() && !busy;
 
   const run = async () => {
-    if (text.trim().length < 20) return toast.error('Provide at least 20 characters');
-    setLoading(true); setResult('');
+    if (studioStore.anyRunning()) return;
+    if (text.trim().length < 20 && !url.trim()) return;
+    studioStore.begin('sum', { text, url, style });
     try {
-      const { data } = await api.post('/studio/summarize', { text, style });
-      setResult(data.summary);
-      dispatch(setWalletBalance(data.balance));
-      toast.success('Done');
+      const { data } = await api.post('/studio/summarize', {
+        text: text.trim() || undefined,
+        url: url.trim() || undefined,
+        style,
+      });
+      studioStore.complete('sum', { result: data.summary });
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed');
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <label className="text-sm font-medium">Text to summarize</label>
-          <Select value={style} onValueChange={setStyle}>
-            <SelectTrigger className="w-40 h-8 text-xs" data-testid="studio-summarize-style"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">Default</SelectItem>
-              <SelectItem value="eli5">Explain like I&apos;m 5</SelectItem>
-              <SelectItem value="executive">Executive brief</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Textarea
-          data-testid="studio-summarize-input"
-          value={text} onChange={(e) => setText(e.target.value)}
-          rows={12} placeholder="Paste article, meeting notes, or report..."
-          className="min-h-[280px] resize-none"
-        />
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{text.length} chars</span>
-          <Button data-testid="studio-summarize-btn" onClick={run} disabled={loading || text.trim().length < 20}>
-            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-            Summarize
-          </Button>
-        </div>
-      </div>
-      <div className="rounded-lg border border-border bg-card p-4 min-h-[280px]">
-        {result ? (
-          <div className="prose-chat" data-testid="studio-summarize-result">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
-          </div>
-        ) : (
-          <div className="text-sm text-muted-foreground text-center py-16">
-            {loading ? 'Analyzing...' : 'Summary appears here.'}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ImageGen() {
-  const [prompt, setPrompt] = useState('');
-  const [quality, setQuality] = useState('low');
-  const [n, setN] = useState(1);
-  const [images, setImages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const dispatch = useDispatch();
-
-  const run = async () => {
-    if (prompt.trim().length < 3) return toast.error('Provide a prompt');
-    setLoading(true); setImages([]);
-    try {
-      const { data } = await api.post('/studio/image', { prompt, quality, n });
-      setImages(data.images);
-      dispatch(setWalletBalance(data.balance));
-      toast.success('Done');
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed');
-    } finally { setLoading(false); }
+      studioStore.fail('sum', e.response?.data?.detail || 'Summarize failed');
+      toast.error(e.response?.data?.detail || 'Summarize failed');
+    }
   };
 
   return (
     <div className="mt-6 space-y-4">
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-        <Input
-          data-testid="studio-image-prompt"
-          value={prompt} onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe the image you want to generate..."
-          className="h-11"
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Select value={quality} onValueChange={setQuality}>
-            <SelectTrigger className="w-36" data-testid="studio-image-quality"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="low">Low (fast)</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={String(n)} onValueChange={(v) => setN(parseInt(v))}>
-            <SelectTrigger className="w-32" data-testid="studio-image-count"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {[1, 2, 3, 4].map(x => <SelectItem key={x} value={String(x)}>{x} image{x > 1 ? 's' : ''}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <div className="text-xs text-muted-foreground flex-1"></div>
-          <Button data-testid="studio-image-btn" onClick={run} disabled={loading || prompt.trim().length < 3}>
-            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ImageIcon className="h-4 w-4 mr-2" />}
-            Generate
+        <Textarea data-testid="studio-summarize-input" value={text} onChange={(e) => setText(e.target.value)}
+                  placeholder="Paste content, notes or an article here..." rows={7} />
+        <div className="flex items-center gap-2">
+          <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Or a website / article link:</span>
+        </div>
+        <Input value={url} onChange={(e) => setUrl(e.target.value)}
+               placeholder="https://example.com/article" data-testid="studio-summarize-url" />
+        <div className="flex flex-wrap items-center gap-2">
+          {['default', 'eli5', 'executive'].map((s) => (
+            <button type="button" key={s} onClick={() => setStyle(s)}
+              className={`px-3 py-1.5 text-xs rounded-full border transition ${style === s ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+              {s === 'default' ? 'Default' : s === 'eli5' ? 'ELI5' : 'Executive'}
+            </button>
+          ))}
+          <div className="flex-1" />
+          <Button data-testid="studio-summarize-btn" onClick={run} disabled={busy || otherBusy || (text.trim().length < 20 && !url.trim())}>
+            {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+            {busy ? 'Summarising…' : 'Summarize'}
           </Button>
         </div>
+        {otherBusy && <p className="text-xs text-center text-muted-foreground">Another generation is running — finish it first.</p>}
       </div>
-      {loading && <div className="text-sm text-muted-foreground text-center py-8"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Generating {n} image{n > 1 ? 's' : ''}...</div>}
-      {images.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" data-testid="studio-image-results">
-          {images.map((im, i) => (
-            <div key={i} className="rounded-lg border border-border bg-card overflow-hidden group relative">
-              <img src={im.url} alt={`Generated ${i + 1}`} className="w-full h-auto" />
-              <a href={im.url} download={`iema-${i + 1}.png`} target="_blank" rel="noreferrer"
-                 className="absolute top-2 right-2 h-8 w-8 rounded-md bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Download className="h-4 w-4" />
-              </a>
-            </div>
-          ))}
+
+      {busy && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+          <Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-3/4" />
         </div>
+      )}
+      {state.status === 'done' && state.result && (
+        <div className="rounded-lg border border-border bg-card p-4 prose prose-invert prose-sm max-w-none"
+             data-testid="studio-summarize-result">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{state.result}</ReactMarkdown>
+        </div>
+      )}
+      {state.status === 'error' && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-4 text-sm text-red-400">{state.error}</div>
+      )}
+    </div>
+  );
+}
+
+function ImageGen() {
+  const state = useStudioStore('img');
+  const [prompt, setPrompt] = useState(state.prompt || '');
+  const [artStyle, setArtStyle] = useState(state.artStyle || 'realistic');
+  const [aspect, setAspect] = useState(state.aspect || 'square');
+  const [quality, setQuality] = useState(state.quality || 'low');
+  const busy = state.status === 'running';
+  const otherBusy = studioStore.anyRunning() && !busy;
+
+  const run = async () => {
+    if (studioStore.anyRunning()) return;
+    if (prompt.trim().length < 3) return;
+    const fullPrompt = `${prompt.trim()}. Style: ${artStyle}. Aspect: ${aspect}. High visual fidelity, clean composition.`;
+    studioStore.begin('img', { prompt, artStyle, aspect, quality });
+    try {
+      const { data } = await api.post('/studio/image', { prompt: fullPrompt, quality, n: 1 });
+      studioStore.complete('img', { images: data.images });
+    } catch (e) {
+      studioStore.fail('img', e.response?.data?.detail || 'Image generation failed');
+      toast.error(e.response?.data?.detail || 'Image generation failed');
+    }
+  };
+
+  return (
+    <div className="mt-6 space-y-4">
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        <Input data-testid="studio-image-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)}
+               placeholder="A calm sunset over a mountain lake..." className="h-11" />
+        <ChipRow label="Style" options={['realistic', 'cinematic', 'anime', 'watercolor', 'pixel-art', '3D render']} value={artStyle} onChange={setArtStyle} />
+        <ChipRow label="Aspect" options={['square', 'portrait', 'landscape']} value={aspect} onChange={setAspect} />
+        <ChipRow label="Quality" options={['low', 'medium', 'high']} value={quality} onChange={setQuality} />
+        <div className="flex justify-end">
+          <Button data-testid="studio-image-btn" onClick={run} disabled={busy || otherBusy || prompt.trim().length < 3}>
+            {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ImageIcon className="h-4 w-4 mr-2" />}
+            {busy ? 'Rendering…' : 'Generate image'}
+          </Button>
+        </div>
+        {otherBusy && <p className="text-xs text-center text-muted-foreground">Another generation is running — finish it first.</p>}
+      </div>
+
+      {busy && (
+        <Skeleton className={`w-full rounded-lg ${aspect === 'portrait' ? 'aspect-[3/4]' : aspect === 'landscape' ? 'aspect-[16/9]' : 'aspect-square'}`} />
+      )}
+      {state.status === 'done' && (state.images || []).map((im, i) => (
+        <div key={i} className="rounded-lg border border-border bg-card overflow-hidden">
+          <img src={im.url} alt="" className="w-full block" />
+          <div className="p-3 flex justify-end">
+            <a href={im.url} download="iema-image.png" target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+               data-testid={`studio-image-save-${i}`}>
+              <Download className="h-3.5 w-3.5" /> Save
+            </a>
+          </div>
+        </div>
+      ))}
+      {state.status === 'error' && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-4 text-sm text-red-400">{state.error}</div>
       )}
     </div>
   );
 }
 
 function VideoGen() {
-  const [prompt, setPrompt] = useState('');
-  const [size, setSize] = useState('1280x720');
-  const [duration, setDuration] = useState(4);
-  const [model, setModel] = useState('sora-2');
-  const [video, setVideo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const dispatch = useDispatch();
-
-  // Deliberately clip the "expected credit cost" client-side so users
-  // see what they'll spend before firing a 2-5 minute generation job.
-  const CREDIT_TABLE = {
-    'sora-2':      { 4: 60,  8: 120, 12: 180 },
-    'sora-2-pro':  { 4: 180, 8: 360, 12: 540 },
-  };
-  const expectedCost = (CREDIT_TABLE[model] || {})[duration] || 0;
+  const state = useStudioStore('vid');
+  const [prompt, setPrompt] = useState(state.prompt || '');
+  const [videoStyle, setVideoStyle] = useState(state.videoStyle || 'cinematic');
+  const [motion, setMotion] = useState(state.motion || 'medium');
+  const [model, setModel] = useState(state.model || 'sora-2');
+  const [duration, setDuration] = useState(state.duration || 4);
+  const busy = state.status === 'running';
+  const otherBusy = studioStore.anyRunning() && !busy;
 
   const run = async () => {
-    if (prompt.trim().length < 3) return toast.error('Provide a prompt');
-    setLoading(true); setVideo(null);
+    if (studioStore.anyRunning()) return;
+    if (prompt.trim().length < 3) return;
+    const fullPrompt = `${prompt.trim()}. Style: ${videoStyle}. Camera motion: ${motion}. Cohesive, detailed, high production value.`;
+    studioStore.begin('vid', { prompt, videoStyle, motion, model, duration });
     try {
-      const { data } = await api.post('/studio/video', { prompt, size, duration, model });
-      setVideo(data);
-      dispatch(setWalletBalance(data.balance));
-      toast.success(`Video ready — ${data.credits_used} credits used`);
+      const { data } = await api.post('/studio/video', { prompt: fullPrompt, model, duration, size: '1280x720' });
+      studioStore.complete('vid', { result: data });
     } catch (e) {
+      studioStore.fail('vid', e.response?.data?.detail || 'Video generation failed');
       toast.error(e.response?.data?.detail || 'Video generation failed');
-    } finally { setLoading(false); }
+    }
   };
 
   return (
     <div className="mt-6 space-y-4">
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-        <Input data-testid="studio-video-prompt" value={prompt}
-               onChange={(e) => setPrompt(e.target.value)}
-               placeholder="Describe the scene you want Sora to render..." className="h-11" />
-        <div className="flex flex-wrap items-center gap-3">
-          <Select value={model} onValueChange={setModel}>
-            <SelectTrigger className="w-36" data-testid="studio-video-model"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="sora-2">Sora 2</SelectItem>
-              <SelectItem value="sora-2-pro">Sora 2 Pro</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={String(duration)} onValueChange={(v) => setDuration(parseInt(v))}>
-            <SelectTrigger className="w-32" data-testid="studio-video-duration"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="4">4 seconds</SelectItem>
-              <SelectItem value="8">8 seconds</SelectItem>
-              <SelectItem value="12">12 seconds</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={size} onValueChange={setSize}>
-            <SelectTrigger className="w-36" data-testid="studio-video-size"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1280x720">1280×720 HD</SelectItem>
-              <SelectItem value="1792x1024">1792×1024 wide</SelectItem>
-              <SelectItem value="1024x1792">1024×1792 portrait</SelectItem>
-              <SelectItem value="1024x1024">1024×1024 square</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="text-xs text-muted-foreground flex-1">
-            <span className="text-primary font-medium">{expectedCost}</span> credits · takes 2–5 min
-          </div>
-          <Button data-testid="studio-video-btn" onClick={run} disabled={loading || prompt.trim().length < 3}>
-            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <VideoIcon className="h-4 w-4 mr-2" />}
-            Generate
+        <Input data-testid="studio-video-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)}
+               placeholder="A drone shot of a rainforest at dawn..." className="h-11" />
+        <ChipRow label="Style" options={['cinematic', 'documentary', 'animation', 'noir', 'commercial', 'dreamlike']} value={videoStyle} onChange={setVideoStyle} />
+        <ChipRow label="Camera motion" options={['still', 'medium', 'dynamic']} value={motion} onChange={setMotion} />
+        <ChipRow label="Model" options={['sora-2', 'sora-2-pro']} value={model} onChange={setModel} />
+        <ChipRow label="Duration" options={[4, 8, 12]} value={duration} onChange={setDuration} renderLabel={(v) => `${v}s`} />
+        <div className="flex justify-end">
+          <Button data-testid="studio-video-btn" onClick={run} disabled={busy || otherBusy || prompt.trim().length < 3}>
+            {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <VideoIcon className="h-4 w-4 mr-2" />}
+            {busy ? 'Rendering…' : 'Generate video'}
           </Button>
         </div>
+        {otherBusy && <p className="text-xs text-center text-muted-foreground">Another generation is running — finish it first.</p>}
       </div>
 
-      {loading && (
-        <div className="text-sm text-muted-foreground text-center py-16 border border-dashed border-border rounded-lg">
-          <Loader2 className="h-6 w-6 animate-spin inline mr-2" />
-          Rendering your video with {model}. This usually takes 2&ndash;5 minutes &mdash; feel free to switch tabs, we&apos;ll finish in the background.
+      {busy && (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center">
+          <Loader2 className="h-6 w-6 animate-spin inline mr-2 text-primary" />
+          <p className="mt-3 text-sm text-muted-foreground">Rendering with {model}. Sora usually takes 2&ndash;5 minutes.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Switch tabs or leave this page &mdash; we&apos;ll finish in the background.</p>
         </div>
       )}
-
-      {video && (
+      {state.status === 'done' && state.result && (
         <div className="rounded-lg border border-border bg-card p-4 space-y-3" data-testid="studio-video-result">
-          <video src={video.url} controls className="w-full rounded-md bg-black" />
+          <video src={state.result.url} controls className="w-full rounded-md bg-black" />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{video.model} · {video.duration}s · {video.size}</span>
-            <a href={video.url} download="iema-video.mp4" target="_blank" rel="noreferrer"
-               className="inline-flex items-center gap-1 text-primary hover:underline">
-              <Download className="h-3.5 w-3.5" /> Download
+            <span>{state.result.model} · {state.result.duration}s · {state.result.size}</span>
+            <a href={state.result.url} download="iema-video.mp4" target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1 text-primary hover:underline"
+               data-testid="studio-video-save-btn">
+              <Download className="h-3.5 w-3.5" /> Save
             </a>
           </div>
         </div>
+      )}
+      {state.status === 'error' && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-4 text-sm text-red-400">{state.error}</div>
       )}
     </div>
   );
 }
 
+function StudioHistory() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/studio/history');
+      setItems(data.items || []);
+    } catch { /* silent */ } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="mt-6 space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>;
+  if (items.length === 0) return <div className="mt-6 text-center text-sm text-muted-foreground">No Studio activity yet.</div>;
+
+  return (
+    <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+      {items.map((it) => (
+        <div key={it.id} className="rounded-lg border border-border bg-card p-4">
+          <div className="flex justify-between items-center">
+            <span className="text-xs uppercase text-primary font-semibold">{it.kind}</span>
+            <span className="text-xs text-muted-foreground">{(it.created_at || '').slice(0, 16).replace('T', ' ')}</span>
+          </div>
+          {it.kind === 'image' && it.urls && it.urls[0] && (
+            <img src={it.urls[0]} alt="" className="w-full rounded-md mt-2" />
+          )}
+          {it.kind === 'video' && it.url && (
+            <video src={it.url} controls className="w-full rounded-md mt-2 bg-black" />
+          )}
+          {it.kind === 'summarize' && it.summary_preview && (
+            <p className="text-sm text-muted-foreground mt-2 line-clamp-4">{it.summary_preview}</p>
+          )}
+          {it.prompt && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{it.prompt}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChipRow({ label, options, value, onChange, renderLabel }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground mb-1.5">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((opt) => (
+          <button type="button" key={opt} onClick={() => onChange(opt)}
+            className={`px-3 py-1.5 text-xs rounded-full border capitalize transition ${value === opt ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+            {renderLabel ? renderLabel(opt) : String(opt)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
