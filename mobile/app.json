@@ -69,7 +69,9 @@
             "targetSdkVersion": 35
           }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser"
     ],
     "extra": {
       "apiBaseUrl": "https://iema-ai-platform.preview.emergentagent.com",
