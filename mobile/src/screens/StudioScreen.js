@@ -212,7 +212,7 @@ function VideoGen() {
   const [prompt, setPrompt] = useState(state.prompt || '');
   const [style, setStyle] = useState(state.style || 'cinematic');
   const [motion, setMotion] = useState(state.motion || 'medium');
-  const [model, setModel] = useState(state.model || 'sora-2');
+  const [model, setModel] = useState(state.model || 'veo-fast');
   const [duration, setDuration] = useState(state.duration || 4);
 
   const busy = state.status === 'running';
@@ -257,13 +257,20 @@ function VideoGen() {
 
         <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, marginTop: spacing.md }}>Model</Text>
         <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-          <ChoicePill label="Sora 2" active={model === 'sora-2'} onPress={() => setModel('sora-2')} />
-          <ChoicePill label="Sora 2 Pro" active={model === 'sora-2-pro'} onPress={() => setModel('sora-2-pro')} />
+          <ChoicePill label="Veo Fast" active={model === 'veo-fast'} onPress={() => setModel('veo-fast')} />
+          <ChoicePill label="Veo HQ" active={model === 'veo-hq'} onPress={() => setModel('veo-hq')} />
+        </View>
+
+        <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, marginTop: spacing.md }}>Aspect</Text>
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+          {['16:9', '9:16', '1:1'].map((a) => (
+            <ChoicePill key={a} label={a} active={aspect === a} onPress={() => setAspect(a)} />
+          ))}
         </View>
 
         <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, marginTop: spacing.md }}>Duration</Text>
         <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-          {[4, 8, 12].map((d) => (
+          {[4, 6, 8].map((d) => (
             <ChoicePill key={d} label={`${d}s`} active={duration === d} onPress={() => setDuration(d)} />
           ))}
         </View>
@@ -285,7 +292,7 @@ function VideoGen() {
           <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
             <ActivityIndicator color={colors.primary} />
             <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, marginTop: 12, textAlign: 'center' }}>
-              Rendering with {model}. Sora usually takes 2–5 minutes.{'\n'}
+              Rendering with Google Veo. Usually 1–3 minutes.{'\n'}
               You can switch tabs or lock your phone — we'll finish in the background.
             </Text>
           </View>

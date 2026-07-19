@@ -171,27 +171,32 @@ async def studio_image(req: ImageGenRequest, user: User = Depends(get_current_us
 
 class VideoGenRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1000)
-    # Sora 2 spec:
-    size: str = Field(default="1280x720")
-    duration: int = Field(default=4, ge=4, le=12)
-    model: str = Field(default="sora-2")   # sora-2 | sora-2-pro
+    # Veo 3.1 spec — aspect_ratio replaces the pixel size argument.
+    aspect_ratio: str = Field(default="16:9")          # 16:9 | 9:16 | 1:1
+    duration: int = Field(default=4, ge=4, le=8)       # 4 | 6 | 8
+    model: str = Field(default="veo-fast")             # veo-fast | veo-hq
+    # Kept for UI-migration back-compat only:
+    size: Optional[str] = None
 
 
 @router.post("/video")
 async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_user)):
-    """Generate a video via Sora 2. Credits are only spent when the job
-    actually returns bytes — a failed generation refunds the user."""
+    """Generate a video via Google Veo 3.1 (Gemini API). Credits are only
+    spent when the job actually returns bytes — a failed generation refunds
+    the user."""
     from services.studio_service import generate_video
-    tier = "pro" if req.model == "sora-2-pro" else "std"
+    # Map old front-end model names → new veo-fast/veo-hq for pricing.
+    resolved_model = req.model
+    if resolved_model in ("sora-2",):     resolved_model = "veo-fast"
+    if resolved_model in ("sora-2-pro",): resolved_model = "veo-hq"
+    tier = "pro" if resolved_model == "veo-hq" else "std"
     service_key = f"studio_video_{tier}_{req.duration}s"
     try:
-        # Generate FIRST, then spend — if Sora fails we never touch credits.
-        video = await generate_video(req.prompt, model=req.model, size=req.size,
+        video = await generate_video(req.prompt, model=resolved_model,
+                                     aspect_ratio=req.aspect_ratio,
                                      duration=req.duration)
         billing = await spend(user.id, service_key,
-                              description=f"AI Studio video ({req.model} {req.duration}s {req.size})")
-        # Persist a proper CDN-ish URL via storage_service if configured, else
-        # serve the local file (the /uploads static mount already handles it).
+                              description=f"AI Studio video ({resolved_model} {req.duration}s {req.aspect_ratio})")
         video_url = video["url_rel"]
         if is_configured():
             try:
@@ -206,15 +211,16 @@ async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_us
         await log_event(
             "studio_video",
             user_id=user.id,
-            payload={"prompt": req.prompt[:500], "model": req.model,
-                     "duration": req.duration, "size": req.size,
+            payload={"prompt": req.prompt[:500], "model": resolved_model,
+                     "duration": req.duration, "aspect_ratio": req.aspect_ratio,
                      "bytes": video["bytes"], "url_signed": video_url},
         )
         return {
             "url": video_url,
             "duration": req.duration,
-            "size": req.size,
-            "model": req.model,
+            "aspect_ratio": req.aspect_ratio,
+            "size": req.aspect_ratio,   # back-compat field for old UIs
+            "model": resolved_model,
             "credits_used": billing["credits_used"],
             "balance": billing["balance"],
         }
@@ -223,5 +229,16 @@ async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_us
     except HTTPException:
         raise
     except Exception as e:
+        # Google's genai SDK raises `ClientError` with a message that already
+        # contains the API-side reason (invalid key, quota exceeded, content
+        # blocked, etc.) — surface it verbatim so the UI shows something
+        # actionable instead of "Video gen failed".
+        msg = str(e)
+        if 'API key not valid' in msg or 'API_KEY_INVALID' in msg:
+            raise HTTPException(401, "Google Veo API key is invalid. Please check GEMINI_API_KEY in the server .env.")
+        if 'RESOURCE_EXHAUSTED' in msg or 'quota' in msg.lower():
+            raise HTTPException(429, "Google Veo quota exhausted for now. Try again later.")
+        if 'SAFETY' in msg or 'blocked' in msg.lower():
+            raise HTTPException(400, "Google Veo rejected the prompt on safety grounds. Try a different prompt.")
         logger.exception("Video gen failed")
-        raise HTTPException(500, f"Video gen failed: {str(e)[:200]}")
+        raise HTTPException(500, f"Video gen failed: {msg[:200]}")

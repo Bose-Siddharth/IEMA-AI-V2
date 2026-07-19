@@ -190,7 +190,8 @@ function VideoGen() {
   const [prompt, setPrompt] = useState(state.prompt || '');
   const [videoStyle, setVideoStyle] = useState(state.videoStyle || 'cinematic');
   const [motion, setMotion] = useState(state.motion || 'medium');
-  const [model, setModel] = useState(state.model || 'sora-2');
+  const [model, setModel] = useState(state.model || 'veo-fast');
+  const [aspect, setAspect] = useState(state.aspect || '16:9');
   const [duration, setDuration] = useState(state.duration || 4);
   const busy = state.status === 'running';
   const otherBusy = studioStore.anyRunning() && !busy;
@@ -199,9 +200,11 @@ function VideoGen() {
     if (studioStore.anyRunning()) return;
     if (prompt.trim().length < 3) return;
     const fullPrompt = `${prompt.trim()}. Style: ${videoStyle}. Camera motion: ${motion}. Cohesive, detailed, high production value.`;
-    studioStore.begin('vid', { prompt, videoStyle, motion, model, duration });
+    studioStore.begin('vid', { prompt, videoStyle, motion, model, aspect, duration });
     try {
-      const { data } = await api.post('/studio/video', { prompt: fullPrompt, model, duration, size: '1280x720' });
+      const { data } = await api.post('/studio/video', {
+        prompt: fullPrompt, model, duration, aspect_ratio: aspect,
+      });
       studioStore.complete('vid', { result: data });
     } catch (e) {
       studioStore.fail('vid', detailToString(e, 'Video generation failed'));
@@ -216,8 +219,9 @@ function VideoGen() {
                placeholder="A drone shot of a rainforest at dawn..." className="h-11" />
         <ChipRow label="Style" options={['cinematic', 'documentary', 'animation', 'noir', 'commercial', 'dreamlike']} value={videoStyle} onChange={setVideoStyle} />
         <ChipRow label="Camera motion" options={['still', 'medium', 'dynamic']} value={motion} onChange={setMotion} />
-        <ChipRow label="Model" options={['sora-2', 'sora-2-pro']} value={model} onChange={setModel} />
-        <ChipRow label="Duration" options={[4, 8, 12]} value={duration} onChange={setDuration} renderLabel={(v) => `${v}s`} />
+        <ChipRow label="Model" options={['veo-fast', 'veo-hq']} value={model} onChange={setModel} renderLabel={(v) => v === 'veo-fast' ? 'Veo Fast' : 'Veo HQ'} />
+        <ChipRow label="Aspect" options={['16:9', '9:16', '1:1']} value={aspect} onChange={setAspect} />
+        <ChipRow label="Duration" options={[4, 6, 8]} value={duration} onChange={setDuration} renderLabel={(v) => `${v}s`} />
         <div className="flex justify-end">
           <Button data-testid="studio-video-btn" onClick={run} disabled={busy || otherBusy || prompt.trim().length < 3}>
             {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <VideoIcon className="h-4 w-4 mr-2" />}
@@ -230,7 +234,7 @@ function VideoGen() {
       {busy && (
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <Loader2 className="h-6 w-6 animate-spin inline mr-2 text-primary" />
-          <p className="mt-3 text-sm text-muted-foreground">Rendering with {model}. Sora usually takes 2&ndash;5 minutes.</p>
+          <p className="mt-3 text-sm text-muted-foreground">Rendering with Google Veo. This usually takes 1&ndash;3 minutes.</p>
           <p className="mt-1 text-xs text-muted-foreground">Switch tabs or leave this page &mdash; we&apos;ll finish in the background.</p>
         </div>
       )}
@@ -238,7 +242,7 @@ function VideoGen() {
         <div className="rounded-lg border border-border bg-card p-4 space-y-3" data-testid="studio-video-result">
           <video src={state.result.url} controls className="w-full rounded-md bg-black" />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{state.result.model} · {state.result.duration}s · {state.result.size}</span>
+            <span>{state.result.model} · {state.result.duration}s · {state.result.aspect_ratio || state.result.size}</span>
             <a href={state.result.url} download="iema-video.mp4" target="_blank" rel="noreferrer"
                className="inline-flex items-center gap-1 text-primary hover:underline"
                data-testid="studio-video-save-btn">

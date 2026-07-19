@@ -1,12 +1,14 @@
-"""AI Studio — text summarization, image generation & Sora 2 video generation."""
+"""AI Studio — text summarization, image generation & Google Veo 3.1 video generation."""
 import os
 import logging
+import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
-from emergentintegrations.llm.openai.video_generation import OpenAIVideoGeneration
+from google import genai
+from google.genai import types as genai_types
 from services.knowledge_retriever import retrieve, store
 from services.settings_service import get_setting
 from services.capability_manifest import with_capability
@@ -67,65 +69,88 @@ async def generate_image_bytes(prompt: str, quality: str = "low", n: int = 1) ->
 
 
 
-# ================= SORA 2 VIDEO GENERATION =================
+# ================= GOOGLE VEO 3.1 VIDEO GENERATION =================
 VIDEO_OUT_DIR = Path(os.environ.get("BACKEND_UPLOADS_DIR", "/app/backend/uploads")) / "videos"
 VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Allowed sizes / durations per Sora 2 spec
-_ALLOWED_SIZES = {"1280x720", "1792x1024", "1024x1792", "1024x1024"}
-_ALLOWED_DURATIONS = {4, 8, 12}
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+# Veo 3.1 accepts a small set of durations and aspect ratios.
+_ALLOWED_ASPECTS = {"16:9", "9:16", "1:1"}
+_ALLOWED_DURATIONS = {4, 6, 8}
+_MODEL_MAP = {
+    # Public-facing names → Google model IDs (July 2026)
+    "veo-fast": "veo-3.1-fast-generate-preview",
+    "veo-hq":   "veo-3.1-generate-preview",
+    # Backwards-compat: earlier UI still sends 'sora-2' / 'sora-2-pro' — route them.
+    "sora-2":     "veo-3.1-fast-generate-preview",
+    "sora-2-pro": "veo-3.1-generate-preview",
+}
 
 
-async def generate_video(prompt: str, model: str = "sora-2", size: str = "1280x720",
-                         duration: int = 4) -> dict:
-    """Generate a video via Sora 2 through the Emergent proxy. Returns
-    ``{filename, path, url_rel, size, duration, model}``. Raises on failure so
-    the caller can refund credits.
-    """
-    if size not in _ALLOWED_SIZES:
-        raise ValueError(f"Unsupported size {size}; use one of {sorted(_ALLOWED_SIZES)}")
+async def generate_video(prompt: str, model: str = "veo-fast",
+                         aspect_ratio: str = "16:9", duration: int = 4,
+                         negative_prompt: Optional[str] = None) -> dict:
+    """Generate a video via Google Veo 3.1 using the Gemini API. Returns
+    ``{filename, path, url_rel, aspect_ratio, duration, model, bytes}``.
+    Raises on failure so the caller can refund credits."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured on the server.")
+    google_model = _MODEL_MAP.get(model)
+    if not google_model:
+        raise ValueError(f"Unsupported model {model}; use one of {list(_MODEL_MAP)}")
+    if aspect_ratio not in _ALLOWED_ASPECTS:
+        raise ValueError(f"Unsupported aspect_ratio {aspect_ratio}; use one of {sorted(_ALLOWED_ASPECTS)}")
     if duration not in _ALLOWED_DURATIONS:
-        raise ValueError(f"Unsupported duration {duration}; use one of {sorted(_ALLOWED_DURATIONS)}")
-    if model not in ("sora-2", "sora-2-pro"):
-        raise ValueError(f"Unsupported model {model}")
+        raise ValueError(f"Unsupported duration {duration}s; use one of {sorted(_ALLOWED_DURATIONS)}")
 
-    # Sora 2 generation can take 2–5 min; the SDK blocks so we run it in a
-    # worker thread to keep the FastAPI event loop responsive.
     import asyncio as _aio
+
     def _run():
-        gen = OpenAIVideoGeneration(api_key=EMERGENT_LLM_KEY)
-        # Bump the timeout so the SDK's inner polling actually sees a
-        # completed job — Sora frequently exceeds the default 5-minute cap
-        # for 12-second Pro clips.
-        max_wait = 1500 if (duration == 12 or model == "sora-2-pro") else 900
-        try:
-            return gen.text_to_video(prompt=prompt, model=model, size=size,
-                                     duration=duration, max_wait_time=max_wait)
-        except Exception as ex:
-            logger.exception(f"Sora SDK raised: {ex}")
-            # Bubble up so the caller can surface a specific error and refund.
-            raise RuntimeError(str(ex) or "Sora generation raised without a message")
-
-    video_bytes = await _aio.to_thread(_run)
-    if not video_bytes:
-        # This branch means the SDK completed but didn't return bytes — usually
-        # a content-policy rejection, a model-availability blip, or the Emergent
-        # proxy queue backing off. Surface a helpful message; caller refunds.
-        raise RuntimeError(
-            "Sora returned no video bytes. Common causes: content policy blocked the prompt, "
-            "the model tier is not enabled on your key, or Sora is momentarily overloaded. "
-            "Please try again or use a slightly different prompt."
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        cfg = genai_types.GenerateVideosConfig(
+            aspect_ratio=aspect_ratio,
+            resolution="720p",
+            duration_seconds=duration,
+            number_of_videos=1,
+            **({"negative_prompt": negative_prompt} if negative_prompt else {}),
         )
+        op = client.models.generate_videos(
+            model=google_model,
+            prompt=prompt,
+            config=cfg,
+        )
+        # Veo takes 1–3 minutes for a fast preview; poll until done.
+        deadline = time.monotonic() + 480   # 8-min hard cap
+        while not op.done:
+            if time.monotonic() > deadline:
+                raise RuntimeError("Veo timed out after 8 minutes without returning a video.")
+            time.sleep(10)
+            op = client.operations.get(op)
 
-    filename = f"sora_{uuid.uuid4().hex}.mp4"
-    out = VIDEO_OUT_DIR / filename
-    out.write_bytes(video_bytes)
+        # Some Veo error paths surface via op.error; surface that verbatim.
+        err = getattr(op, "error", None)
+        if err:
+            raise RuntimeError(f"Veo error: {getattr(err, 'message', str(err))}")
+
+        gen_videos = getattr(op.response, "generated_videos", None) or []
+        if not gen_videos:
+            raise RuntimeError("Veo returned no videos — often a content-policy block. Try a different prompt.")
+        gv = gen_videos[0]
+        # Download the video bytes into memory / file.
+        client.files.download(file=gv.video)
+        filename = f"veo_{uuid.uuid4().hex}.mp4"
+        out = VIDEO_OUT_DIR / filename
+        gv.video.save(str(out))
+        return filename, out
+
+    filename, out = await _aio.to_thread(_run)
     return {
         "filename": filename,
         "path": str(out),
         "url_rel": f"/api/media-static/videos/{filename}",
-        "size": size,
+        "aspect_ratio": aspect_ratio,
         "duration": duration,
         "model": model,
-        "bytes": len(video_bytes),
+        "bytes": out.stat().st_size,
     }
