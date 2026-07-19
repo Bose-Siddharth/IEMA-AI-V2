@@ -74,7 +74,7 @@
       "expo-web-browser"
     ],
     "extra": {
-      "apiBaseUrl": "https://iema-ai-platform.preview.emergentagent.com",
+      "apiBaseUrl": "https://api.iema.ai",
       "eas": {
         "projectId": "d6e0dba8-f63e-40a4-8cba-baa765a2f423"
       }
