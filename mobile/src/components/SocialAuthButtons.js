@@ -66,25 +66,56 @@ export default function SocialAuthButtons() {
     if (data) finish(data);
   });
 
-  // GitHub / LinkedIn reject non-HTTPS redirect URIs, so a custom-scheme
-  // (`iemaai://auth`) can't be registered on either provider. We instead
-  // route the user through the web `/mobile-oauth?provider=…` bridge which
-  // uses the already-registered web callback URL and, on success, redirects
-  // the browser to `iemaai://auth?access_token=…&refresh_token=…`. The app
-  // catches that via WebBrowser.openAuthSessionAsync.
+  // Same callback URL as the web app (`/auth/callback`) — it's the ONLY
+  // redirect URI each OAuth provider has registered, and it's the one
+  // GitHub requires ("must be exactly one" per app). The web callback page
+  // detects `state=mobile:*` and finishes by 302-ing back to `iemaai://auth`.
   const webBridge = async (provider) => {
-    if (!api.defaults.baseURL) throw new Error('API base URL missing');
-    const webOrigin = String(api.defaults.baseURL).replace(/\/api\/?$/, '');
-    const url = `${webOrigin}/mobile-oauth?provider=${provider}&app_scheme=iemaai`;
-    const res = await WebBrowser.openAuthSessionAsync(url, 'iemaai://auth');
+    const { data: cfg } = await api.get('/auth/oauth-config');
+    if (!cfg?.[provider]?.enabled) throw new Error(`${provider} not configured`);
+    const webOrigin = String(api.defaults.baseURL || '').replace(/\/api\/?$/, '');
+    if (!webOrigin) throw new Error('API base URL missing');
+    const webCallback = `${webOrigin}/auth/callback`;
+    const state = `mobile:${provider}:iemaai:${Math.random().toString(36).slice(2, 10)}`;
+
+    let authUrl;
+    if (provider === 'github') {
+      authUrl = 'https://github.com/login/oauth/authorize?' + new URLSearchParams({
+        client_id: cfg.github.client_id,
+        redirect_uri: webCallback,
+        scope: 'read:user user:email',
+        state,
+      }).toString();
+    } else if (provider === 'linkedin') {
+      authUrl = 'https://www.linkedin.com/oauth/v2/authorization?' + new URLSearchParams({
+        response_type: 'code',
+        client_id: cfg.linkedin.client_id,
+        redirect_uri: webCallback,
+        scope: 'openid profile email',
+        state,
+      }).toString();
+    } else if (provider === 'google') {
+      authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+        client_id: cfg.google.client_id,
+        redirect_uri: webCallback,
+        response_type: 'code',
+        scope: 'openid email profile',
+        state,
+        prompt: 'select_account',
+      }).toString();
+    } else {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+
+    const res = await WebBrowser.openAuthSessionAsync(authUrl, 'iemaai://auth');
     if (res.type !== 'success' || !res.url) return null;
-    // The returning URL is `iemaai://auth?access_token=…&refresh_token=…&user=…`
+    // Returning URL is `iemaai://auth?access_token=…&refresh_token=…&user=…`
     const q = res.url.split('?')[1] || '';
     const params = Object.fromEntries(
       q.split('&').filter(Boolean).map((p) => p.split('=').map(decodeURIComponent))
     );
     if (params.error) throw new Error(params.error);
-    if (!params.access_token) throw new Error('No token returned from web bridge');
+    if (!params.access_token) throw new Error('No token returned');
     return {
       user: params.user ? JSON.parse(params.user) : null,
       tokens: {

@@ -120,3 +120,4 @@ mobile/.env
 *firebase-adminsdk*.json
 *.pem
 frontend/node_modules/.cache/default-development/12.pack
+frontend/node_modules/.cache/default-development/16.pack
