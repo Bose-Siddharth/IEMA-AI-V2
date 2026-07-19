@@ -11,6 +11,17 @@ import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+// FastAPI validation errors and our rate-limit middleware return `detail` as
+// an object/array — passing that raw to `toast.error()` throws "Objects are
+// not valid as a React child" and unmounts the whole page. Always coerce.
+function detailToString(err, fallback) {
+  const d = err?.response?.data?.detail ?? err?.message;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) return d.map((x) => x?.msg || JSON.stringify(x)).join(', ');
+  if (d && typeof d === 'object') return d.message || d.msg || JSON.stringify(d);
+  return fallback;
+}
+
 export default function Studio() {
   const [tab, setTab] = useState('summarize');
   return (
@@ -62,8 +73,8 @@ function Summarize() {
       });
       studioStore.complete('sum', { result: data.summary });
     } catch (e) {
-      studioStore.fail('sum', e.response?.data?.detail || 'Summarize failed');
-      toast.error(e.response?.data?.detail || 'Summarize failed');
+      studioStore.fail('sum', detailToString(e, 'Summarize failed'));
+      toast.error(detailToString(e, 'Summarize failed'));
     }
   };
 
@@ -130,8 +141,8 @@ function ImageGen() {
       const { data } = await api.post('/studio/image', { prompt: fullPrompt, quality, n: 1 });
       studioStore.complete('img', { images: data.images });
     } catch (e) {
-      studioStore.fail('img', e.response?.data?.detail || 'Image generation failed');
-      toast.error(e.response?.data?.detail || 'Image generation failed');
+      studioStore.fail('img', detailToString(e, 'Image generation failed'));
+      toast.error(detailToString(e, 'Image generation failed'));
     }
   };
 
@@ -193,8 +204,8 @@ function VideoGen() {
       const { data } = await api.post('/studio/video', { prompt: fullPrompt, model, duration, size: '1280x720' });
       studioStore.complete('vid', { result: data });
     } catch (e) {
-      studioStore.fail('vid', e.response?.data?.detail || 'Video generation failed');
-      toast.error(e.response?.data?.detail || 'Video generation failed');
+      studioStore.fail('vid', detailToString(e, 'Video generation failed'));
+      toast.error(detailToString(e, 'Video generation failed'));
     }
   };
 
