@@ -12,6 +12,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 export default function Studio() {
+  const [tab, setTab] = useState('summarize');
   return (
     <div className="max-w-5xl mx-auto p-6" data-testid="studio-page">
       <div className="mb-8">
@@ -25,7 +26,7 @@ export default function Studio() {
           </div>
         </div>
       </div>
-      <Tabs defaultValue="summarize">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList data-testid="studio-tabs">
           <TabsTrigger value="summarize" data-testid="studio-tab-summarize"><FileText className="h-4 w-4 mr-2" />Summarize</TabsTrigger>
           <TabsTrigger value="image" data-testid="studio-tab-image"><ImageIcon className="h-4 w-4 mr-2" />Image</TabsTrigger>
@@ -35,7 +36,7 @@ export default function Studio() {
         <TabsContent value="summarize"><Summarize /></TabsContent>
         <TabsContent value="image"><ImageGen /></TabsContent>
         <TabsContent value="video"><VideoGen /></TabsContent>
-        <TabsContent value="history"><StudioHistory /></TabsContent>
+        <TabsContent value="history"><StudioHistory onOpen={setTab} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -242,7 +243,7 @@ function VideoGen() {
   );
 }
 
-function StudioHistory() {
+function StudioHistory({ onOpen }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
@@ -254,28 +255,48 @@ function StudioHistory() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const open = (it) => {
+    if (it.kind === 'summarize') {
+      studioStore.complete('sum', { text: it.prompt || '', result: it.summary_preview || '' });
+      onOpen?.('summarize');
+    } else if (it.kind === 'image') {
+      const urls = (it.urls || (it.url ? [it.url] : [])).map((u) => ({ url: u }));
+      studioStore.complete('img', { prompt: it.prompt, images: urls });
+      onOpen?.('image');
+    } else if (it.kind === 'video') {
+      studioStore.complete('vid', {
+        prompt: it.prompt,
+        result: { url: it.url, model: it.model, duration: it.duration, size: it.size },
+      });
+      onOpen?.('video');
+    }
+  };
+
   if (loading) return <div className="mt-6 space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}</div>;
   if (items.length === 0) return <div className="mt-6 text-center text-sm text-muted-foreground">No Studio activity yet.</div>;
 
   return (
     <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
       {items.map((it) => (
-        <div key={it.id} className="rounded-lg border border-border bg-card p-4">
+        <button key={it.id} onClick={() => open(it)} type="button"
+                className="text-left rounded-lg border border-border bg-card p-4 hover:border-primary/50 transition"
+                data-testid={`studio-history-item-${it.kind}`}>
           <div className="flex justify-between items-center">
             <span className="text-xs uppercase text-primary font-semibold">{it.kind}</span>
-            <span className="text-xs text-muted-foreground">{(it.created_at || '').slice(0, 16).replace('T', ' ')}</span>
+            <span className="text-xs text-muted-foreground">{String(it.created_at || '').slice(0, 16).replace('T', ' ')}</span>
           </div>
           {it.kind === 'image' && it.urls && it.urls[0] && (
             <img src={it.urls[0]} alt="" className="w-full rounded-md mt-2" />
           )}
           {it.kind === 'video' && it.url && (
-            <video src={it.url} controls className="w-full rounded-md mt-2 bg-black" />
+            <video src={it.url} controls onClick={(e) => e.stopPropagation()} className="w-full rounded-md mt-2 bg-black" />
           )}
           {it.kind === 'summarize' && it.summary_preview && (
-            <p className="text-sm text-muted-foreground mt-2 line-clamp-4">{it.summary_preview}</p>
+            <p className="text-sm text-muted-foreground mt-2 line-clamp-4">{String(it.summary_preview)}</p>
           )}
-          {it.prompt && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{it.prompt}</p>}
-        </div>
+          {it.prompt && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{String(it.prompt)}</p>}
+          <p className="mt-2 text-xs text-primary">Tap to reopen &rarr;</p>
+        </button>
       ))}
     </div>
   );

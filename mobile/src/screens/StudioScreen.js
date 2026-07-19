@@ -28,7 +28,7 @@ export default function StudioScreen({ navigation }) {
         {tab === 'sum' && <Summarize />}
         {tab === 'img' && <ImageGen />}
         {tab === 'vid' && <VideoGen />}
-        {tab === 'hist' && <HistoryList />}
+        {tab === 'hist' && <HistoryList setTab={setTab} />}
       </ScrollView>
     </View>
   );
@@ -194,7 +194,7 @@ function ImageGen() {
         <Card key={i} style={{ padding: 0, overflow: 'hidden' }}>
           <Image source={{ uri: im.url }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
           <View style={{ padding: spacing.md, flexDirection: 'row', justifyContent: 'flex-end' }}>
-            <Button title="Save / share" icon={<Download color="#fff" size={14} />}
+          <Button title="Save / share"
                     onPress={() => Linking.openURL(im.url)} testID={`image-save-${i}`} />
           </View>
         </Card>
@@ -299,9 +299,9 @@ function VideoGen() {
             {state.result.model} · {state.result.duration}s · {state.result.size}
           </Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: spacing.md }}>
-            <Button title="Open" icon={<LinkIcon color="#fff" size={14} />}
+            <Button title="Open"
                     onPress={() => Linking.openURL(state.result.url)} style={{ flex: 1 }} />
-            <Button title="Save / share" icon={<Download color="#fff" size={14} />}
+            <Button title="Save / share"
                     variant="outline"
                     onPress={() => Linking.openURL(state.result.url)} style={{ flex: 1 }}
                     testID="studio-video-save-btn" />
@@ -316,7 +316,7 @@ function VideoGen() {
 }
 
 // -------------------- History --------------------
-function HistoryList() {
+function HistoryList({ setTab }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -330,6 +330,25 @@ function HistoryList() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Tapping a history row rehydrates the store and jumps to the matching
+  // tab, so users can "continue" from where they left off.
+  const openItem = (it) => {
+    if (it.kind === 'summarize') {
+      studioStore.complete('sum', { text: it.prompt || '', result: it.summary_preview || '' });
+      setTab?.('sum');
+    } else if (it.kind === 'image') {
+      const urls = (it.urls || (it.url ? [it.url] : [])).map((u) => ({ url: u }));
+      studioStore.complete('img', { prompt: it.prompt, images: urls });
+      setTab?.('img');
+    } else if (it.kind === 'video') {
+      studioStore.complete('vid', {
+        prompt: it.prompt,
+        result: { url: it.url, model: it.model, duration: it.duration, size: it.size },
+      });
+      setTab?.('vid');
+    }
+  };
+
   if (loading && items.length === 0) {
     return <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />;
   }
@@ -337,33 +356,33 @@ function HistoryList() {
     return <Card><Text style={{ color: colors.textMuted, textAlign: 'center' }}>No Studio activity yet.</Text></Card>;
   }
   return items.map((it) => (
-    <Card key={it.id}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Text style={{ color: colors.primary, fontSize: fontSize.xs, fontWeight: '600', textTransform: 'uppercase' }}>{it.kind}</Text>
-        <Text style={{ color: colors.textDim, fontSize: fontSize.xs }}>{(it.created_at || '').slice(0, 16).replace('T', ' ')}</Text>
-      </View>
-      {it.kind === 'image' && it.urls && it.urls[0] && (
-        <Image source={{ uri: it.urls[0] }} style={{ width: '100%', aspectRatio: 1, borderRadius: radii.md, marginTop: 8 }} resizeMode="cover" />
-      )}
-      {it.kind === 'video' && it.url && (
-        <TouchableOpacity onPress={() => Linking.openURL(it.url)} style={{ marginTop: 8 }}>
-          <View style={{ padding: spacing.md, borderRadius: radii.md, backgroundColor: colors.bg, alignItems: 'center' }}>
+    <TouchableOpacity key={it.id} onPress={() => openItem(it)} activeOpacity={0.8}>
+      <Card>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <Text style={{ color: colors.primary, fontSize: fontSize.xs, fontWeight: '600', textTransform: 'uppercase' }}>{it.kind}</Text>
+          <Text style={{ color: colors.textDim, fontSize: fontSize.xs }}>{String(it.created_at || '').slice(0, 16).replace('T', ' ')}</Text>
+        </View>
+        {it.kind === 'image' && it.urls && it.urls[0] && (
+          <Image source={{ uri: it.urls[0] }} style={{ width: '100%', aspectRatio: 1, borderRadius: radii.md, marginTop: 8 }} resizeMode="cover" />
+        )}
+        {it.kind === 'video' && it.url && (
+          <View style={{ marginTop: 8, padding: spacing.md, borderRadius: radii.md, backgroundColor: colors.bg, alignItems: 'center' }}>
             <VideoIcon color={colors.primary} size={20} />
             <Text style={{ color: colors.primary, fontSize: fontSize.sm, marginTop: 6 }}>Open video</Text>
           </View>
-        </TouchableOpacity>
-      )}
-      {it.kind === 'summarize' && it.summary_preview && (
-        <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, marginTop: 6 }}>
-          {it.summary_preview}
-        </Text>
-      )}
-      {it.prompt ? (
-        <Text style={{ color: colors.textDim, fontSize: fontSize.xs, marginTop: 6 }} numberOfLines={2}>
-          {it.prompt}
-        </Text>
-      ) : null}
-    </Card>
+        )}
+        {it.kind === 'summarize' && it.summary_preview && (
+          <Text style={{ color: colors.textMuted, fontSize: fontSize.sm, marginTop: 6 }} numberOfLines={4}>
+            {String(it.summary_preview)}
+          </Text>
+        )}
+        {it.prompt ? (
+          <Text style={{ color: colors.textDim, fontSize: fontSize.xs, marginTop: 6 }} numberOfLines={2}>
+            {String(it.prompt)}
+          </Text>
+        ) : null}
+      </Card>
+    </TouchableOpacity>
   ));
 }
 

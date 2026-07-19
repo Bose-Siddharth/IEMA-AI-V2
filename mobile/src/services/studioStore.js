@@ -35,7 +35,12 @@ export const studioStore = {
     emit();
   },
   fail(kind, error) {
-    state[kind] = { ...state[kind], error, status: 'error' };
+    // Coerce FastAPI validation array-errors etc. so `<Text>{state.error}</Text>`
+    // never throws "Objects are not valid as a React child".
+    const msg = typeof error === 'string' ? error
+      : Array.isArray(error) ? error.map((e) => e?.msg || JSON.stringify(e)).join(', ')
+      : (error && typeof error === 'object' ? (error.msg || error.message || JSON.stringify(error)) : String(error));
+    state[kind] = { ...state[kind], error: msg, status: 'error' };
     emit();
   },
   reset(kind) {

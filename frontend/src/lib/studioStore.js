@@ -15,7 +15,15 @@ export const studioStore = {
   anyRunning: () => Object.values(state).some((s) => s.status === 'running'),
   begin: (k, p) => { state[k] = { ...initial(), ...p, status: 'running' }; emit(); },
   complete: (k, p) => { state[k] = { ...state[k], ...p, status: 'done' }; emit(); },
-  fail: (k, err) => { state[k] = { ...state[k], error: err, status: 'error' }; emit(); },
+  fail: (k, err) => {
+    // FastAPI validation errors return `detail` as an array of objects.
+    // Coerce anything non-string so `<Text>{state.error}</Text>` never
+    // throws "Objects are not valid as a React child".
+    const msg = typeof err === 'string' ? err
+      : Array.isArray(err) ? err.map((e) => e?.msg || JSON.stringify(e)).join(', ')
+      : (err && typeof err === 'object' ? (err.msg || err.message || JSON.stringify(err)) : String(err));
+    state[k] = { ...state[k], error: msg, status: 'error' }; emit();
+  },
   reset: (k) => { state[k] = initial(); emit(); },
   subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
 };
