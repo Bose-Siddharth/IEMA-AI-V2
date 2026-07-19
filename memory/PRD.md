@@ -244,4 +244,17 @@ See `/app/memory/test_credentials.md`
   (429 RESOURCE_EXHAUSTED). Video generation will work as soon as the
   Google AI Studio project has billing credits.
 - Updated Studio page copy: "Sora 2" → "Google Veo 3.1".
+- **2026-02-19** — Studio "sticky text" fix (web + mobile): the Summarize /
+  Image / Video forms are now reset when the user leaves the Studio screen
+  **unless a generation is in flight**. Web uses `useEffect` cleanup on
+  route unmount; mobile uses `useFocusEffect` (drawer keeps screens mounted).
+  A `studioStore.resetIdle()` helper skips any module whose `status === 'running'`.
+- **2026-02-19** — Rebranded frontend: `public/index.html` title now
+  "IEMA.ai — AI Super Platform"; removed Emergent PostHog script + meta
+  description; added `manifest.json`, `favicon.ico`, `apple-touch-icon.png`,
+  `logo192.png`, `logo512.png` all generated from the user-supplied logo.
+  Cleaned residual `emergentLink` test-id constants.
+- **2026-02-19** — New brand logo (blue circuit-chip fingerprint) applied
+  to mobile assets: `icon.png`, `adaptive-icon.png` (Android foreground on
+  #3b82f6), `splash.png` (1284×2778 centered on #0a0a0f), `favicon.png`.
 

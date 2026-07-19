@@ -24,6 +24,12 @@ function detailToString(err, fallback) {
 
 export default function Studio() {
   const [tab, setTab] = useState('summarize');
+  // When leaving the Studio screen, clear any *idle* modules so the form
+  // starts empty next visit. Any generation that's still running is
+  // preserved so the user can rejoin it.
+  useEffect(() => {
+    return () => { studioStore.resetIdle(); };
+  }, []);
   return (
     <div className="max-w-5xl mx-auto p-6" data-testid="studio-page">
       <div className="mb-8">

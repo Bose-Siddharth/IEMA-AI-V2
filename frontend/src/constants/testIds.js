@@ -45,4 +45,4 @@ export const BILLING = {
   currencySelect: 'billing-currency-select',
 };
 
-export const HOME = { getStartedBtn: 'home-get-started-btn', emergentLink: 'home-emergent-link' };
+export const HOME = { getStartedBtn: 'home-get-started-btn' };

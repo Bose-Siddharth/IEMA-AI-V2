@@ -47,6 +47,19 @@ export const studioStore = {
     state[kind] = initial();
     emit();
   },
+  /** Reset any module that isn't currently generating. Called when the user
+   * leaves the Studio screen so the form is empty on return — but a
+   * running job is preserved so we can rejoin it. */
+  resetIdle() {
+    let changed = false;
+    for (const k of Object.keys(state)) {
+      if (state[k].status !== 'running') {
+        state[k] = initial();
+        changed = true;
+      }
+    }
+    if (changed) emit();
+  },
   subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 };
 

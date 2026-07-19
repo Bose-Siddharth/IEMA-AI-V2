@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, Image, TouchableOpacity, Alert, Linking, ActivityIndicator, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Sparkles, ImageIcon, FileText, Video as VideoIcon, Download, Link as LinkIcon, History as HistoryIcon, Loader2 } from 'lucide-react-native';
 import api from '../api';
 import ScreenHeader from '../components/ScreenHeader';
@@ -15,6 +16,14 @@ import { studioStore, useStudioStore } from '../services/studioStore';
  */
 export default function StudioScreen({ navigation }) {
   const [tab, setTab] = useState('sum');
+  // Drawer navigation keeps screens mounted, so we use `useFocusEffect`
+  // to detect when the user leaves the Studio drawer entry. If nothing is
+  // generating we reset the form on the way out — a running job survives.
+  useFocusEffect(
+    useCallback(() => {
+      return () => { studioStore.resetIdle(); };
+    }, [])
+  );
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }} testID="studio-screen">
       <ScreenHeader title="AI Studio" navigation={navigation} />
