@@ -158,6 +158,17 @@ export default function SocialAuthButtons() {
           state,
           prompt: "select_account",
         }).toString();
+    } else if (provider === "apple") {
+      authUrl =
+        "https://appleid.apple.com/auth/authorize?" +
+        new URLSearchParams({
+          client_id: cfg.apple.client_id,
+          redirect_uri: webCallback,
+          response_type: "code",
+          response_mode: "form_post",
+          scope: "name email",
+          state,
+        }).toString();
     } else {
       throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -287,15 +298,13 @@ export default function SocialAuthButtons() {
         )}
       </TouchableOpacity>
       <View style={{ flexDirection: "row", gap: spacing.sm }}>
-        {Platform.OS === "ios"
-          ? chip("Apple", signInApple, "apple", "social-apple", false)
-          : chip(
-              "Apple",
-              () => Alert.alert("Apple Sign-In", "Apple Sign-In requires iOS."),
-              "apple",
-              "social-apple",
-              true
-            )}
+        {chip(
+          "Apple",
+          () => webBridge("apple").then((d) => d && finish(d)),
+          "apple",
+          "social-apple",
+          !oauthCfg.apple?.enabled
+        )}
         {chip(
           "GitHub",
           signInGithub,

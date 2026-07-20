@@ -24,15 +24,20 @@ from services.credit_service import get_or_create_wallet
 from services.email_service import send_email, verify_email_template, reset_password_template, welcome_template
 from fastapi.responses import RedirectResponse
 import urllib.parse
+import time
+from pathlib import Path
+from cryptography.hazmat.primitives import serialization
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(tags=["auth"])
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
 MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
 APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
+APPLE_TEAM_ID = os.getenv("APPLE_TEAM_ID", "")
+APPLE_KEY_ID = os.getenv("APPLE_KEY_ID", "")
 GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 LINKEDIN_CLIENT_ID = os.environ.get("LINKEDIN_CLIENT_ID", "")
@@ -60,6 +65,47 @@ def _get_apple_jwks():
         _apple_jwks = pyjwt.PyJWKClient("https://appleid.apple.com/auth/keys")
     return _apple_jwks
 
+raw_key = os.getenv("APPLE_P8_FILE", "").strip()
+
+if raw_key and "BEGIN PRIVATE KEY" in raw_key and "\n" not in raw_key:
+    raw_key = raw_key.replace("-----BEGIN PRIVATE KEY-----", "")
+    raw_key = raw_key.replace("-----END PRIVATE KEY-----", "")
+    raw_key = "".join(raw_key.split())  # remove spaces
+
+    lines = [raw_key[i:i+64] for i in range(0, len(raw_key), 64)]
+
+    APPLE_PRIVATE_KEY = (
+        "-----BEGIN PRIVATE KEY-----\n"
+        + "\n".join(lines)
+        + "\n-----END PRIVATE KEY-----\n"
+    )
+else:
+    APPLE_PRIVATE_KEY = raw_key.replace("\\n", "\n")
+
+
+def _generate_apple_client_secret():
+    private_key = serialization.load_pem_private_key(
+        APPLE_PRIVATE_KEY.encode("utf-8"),
+        password=None,
+    )
+
+    now = int(time.time())
+
+    return pyjwt.encode(
+        {
+            "iss": APPLE_TEAM_ID,
+            "iat": now,
+            "exp": now + 86400 * 180,
+            "aud": "https://appleid.apple.com",
+            "sub": APPLE_CLIENT_ID,
+        },
+        private_key,
+        algorithm="ES256",
+        headers={
+            "kid": APPLE_KEY_ID,
+        },
+    )
+
 email_codes_col = db["email_codes"]
 reset_tokens_col = db["reset_tokens"]
 
@@ -77,18 +123,21 @@ def _user_to_public(user: User) -> UserPublic:
         created_at=user.created_at,
     )
 
-@router.get("/callback")
-async def oauth_callback(
-    request: Request,
-    code: str,
-    state: str = "",
-    error: str | None = None,
-):
+@router.api_route("/callback", methods=["GET", "POST"])
+async def oauth_callback(request: Request):
     """
     OAuth callback bridge for mobile apps.
     Supports Google, GitHub, LinkedIn and Microsoft.
     """
-
+    if request.method == "POST":
+        form = await request.form()
+        code = form.get("code")
+        state = form.get("state", "")
+        error = form.get("error")
+    else:
+        code = request.query_params.get("code")
+        state = request.query_params.get("state", "")
+        error = request.query_params.get("error")
     if error:
         return RedirectResponse(
             f"iemaai://auth?success=false&error={urllib.parse.quote(error)}"
@@ -269,6 +318,49 @@ async def oauth_callback(
                 avatar = None
                 provider_id = info.get("id")
 
+            # ================= APPLE =================
+            elif provider == "apple":
+
+                client_secret = _generate_apple_client_secret()
+
+                token_res = await http.post(
+                    "https://appleid.apple.com/auth/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "redirect_uri": f"{APP_URL}/auth/callback",
+                        "client_id": APPLE_CLIENT_ID,
+                        "client_secret": client_secret,
+                    },
+                )
+
+                token_res.raise_for_status()
+
+                tokens = token_res.json()
+
+                id_token = tokens["id_token"]
+
+                signing_key = (
+                    _get_apple_jwks()
+                    .get_signing_key_from_jwt(id_token)
+                )
+
+                payload = pyjwt.decode(
+                    id_token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience=APPLE_CLIENT_ID,
+                    issuer="https://appleid.apple.com",
+                )
+
+                email = (
+                    payload.get("email")
+                    or f"apple_{payload['sub']}@privaterelay.appleid.com"
+                ).lower()
+
+                name = payload.get("name") or email.split("@")[0]
+                avatar = None
+                provider_id = payload["sub"]
             else:
                 raise Exception(f"Unsupported provider: {provider}")
 
