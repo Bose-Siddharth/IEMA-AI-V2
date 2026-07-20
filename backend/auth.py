@@ -10,6 +10,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from db import users_col, sessions_col, now_iso, now_utc
 from models import User
 
+
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
 JWT_ALGO = "HS256"
 ACCESS_MINUTES = int(os.environ.get("JWT_ACCESS_MINUTES", "60"))

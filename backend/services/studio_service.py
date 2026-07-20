@@ -70,7 +70,17 @@ async def generate_image_bytes(prompt: str, quality: str = "low", n: int = 1) ->
 
 
 # ================= GOOGLE VEO 3.1 VIDEO GENERATION =================
-VIDEO_OUT_DIR = Path(os.environ.get("BACKEND_UPLOADS_DIR", "/app/backend/uploads")) / "videos"
+
+# Resolve uploads directory in a platform-independent way.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+VIDEO_OUT_DIR = Path(
+    os.environ.get(
+        "BACKEND_UPLOADS_DIR",
+        str(BASE_DIR / "uploads")
+    )
+) / "videos"
+
 VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")

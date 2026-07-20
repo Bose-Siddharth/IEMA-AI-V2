@@ -38,8 +38,25 @@ from services.knowledge_engine import start as start_kb_engine
 
 app = FastAPI(title="IEMA.ai v2 API", version="2.0.0")
 
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+
+@app.get("/auth/callback", include_in_schema=False)
+async def oauth_callback_compat(request: Request):
+    query = request.url.query
+    url = "/api/auth/callback"
+    if query:
+        url += f"?{query}"
+    return RedirectResponse(url=url, status_code=307)
+
 api_router = APIRouter(prefix="/api")
 
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "service": "IEMA.ai API"
+    }
 
 @api_router.get("/")
 async def root():

@@ -22,6 +22,8 @@ from auth import (
 from db import users_col, sessions_col, db, now_iso, now_utc
 from services.credit_service import get_or_create_wallet
 from services.email_service import send_email, verify_email_template, reset_password_template, welcome_template
+from fastapi.responses import RedirectResponse
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,6 +41,7 @@ APP_URL = os.environ.get("APP_URL", "")
 
 _ms_jwks_by_issuer: dict = {}
 _apple_jwks = None
+
 
 
 def _get_ms_jwks_for_issuer(issuer: str):
@@ -74,6 +77,271 @@ def _user_to_public(user: User) -> UserPublic:
         created_at=user.created_at,
     )
 
+@router.get("/callback")
+async def oauth_callback(
+    request: Request,
+    code: str,
+    state: str = "",
+    error: str | None = None,
+):
+    """
+    OAuth callback bridge for mobile apps.
+    Supports Google, GitHub, LinkedIn and Microsoft.
+    """
+
+    if error:
+        return RedirectResponse(
+            f"iemaai://auth?success=false&error={urllib.parse.quote(error)}"
+        )
+
+    provider = "google"
+
+    try:
+        if state.startswith("mobile:"):
+            parts = state.split(":")
+            if len(parts) >= 2:
+                provider = parts[1].lower()
+
+        async with httpx.AsyncClient(timeout=15) as http:
+
+            # ================= GOOGLE =================
+            if provider == "google":
+
+                token_res = await http.post(
+                    "https://oauth2.googleapis.com/token",
+                    data={
+                        "code": code,
+                        "client_id": GOOGLE_CLIENT_ID,
+                        "client_secret": GOOGLE_CLIENT_SECRET,
+                        "redirect_uri": f"{APP_URL}/auth/callback",
+                        "grant_type": "authorization_code",
+                    },
+                )
+
+                if token_res.status_code != 200:
+                    logger.error(f"Status: {token_res.status_code}")
+                    logger.error(f"Body: {token_res.text}")
+                    logger.error(f"Redirect URI: {APP_URL}/auth/callback")
+                    logger.error(f"Code: {code}")
+                    raise Exception(token_res.text)
+                tokens = token_res.json()
+
+                info_res = await http.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={
+                        "Authorization": f"Bearer {tokens['access_token']}"
+                    },
+                )
+                info_res.raise_for_status()
+                info = info_res.json()
+
+                email = (info.get("email") or "").lower()
+                name = info.get("name") or email.split("@")[0]
+                avatar = info.get("picture")
+                provider_id = info.get("sub")
+
+            # ================= GITHUB =================
+            elif provider == "github":
+
+                token_res = await http.post(
+                    "https://github.com/login/oauth/access_token",
+                    data={
+                        "client_id": GITHUB_CLIENT_ID,
+                        "client_secret": GITHUB_CLIENT_SECRET,
+                        "code": code,
+                        "redirect_uri": f"{APP_URL}/auth/callback",
+                    },
+                    headers={"Accept": "application/json"},
+                )
+
+                token_res.raise_for_status()
+
+                access_token = token_res.json()["access_token"]
+
+                headers = {
+                    "Authorization": f"token {access_token}",
+                    "Accept": "application/vnd.github+json",
+                }
+
+                user_res = await http.get(
+                    "https://api.github.com/user",
+                    headers=headers,
+                )
+                user_res.raise_for_status()
+
+                info = user_res.json()
+
+                email = (info.get("email") or "").lower()
+
+                if not email:
+                    emails = await http.get(
+                        "https://api.github.com/user/emails",
+                        headers=headers,
+                    )
+                    emails.raise_for_status()
+
+                    for e in emails.json():
+                        if e["primary"] and e["verified"]:
+                            email = e["email"].lower()
+                            break
+
+                name = info.get("name") or info.get("login")
+                avatar = info.get("avatar_url")
+                provider_id = str(info.get("id"))
+
+            # ================= LINKEDIN =================
+            elif provider == "linkedin":
+
+                token_res = await http.post(
+                    "https://www.linkedin.com/oauth/v2/accessToken",
+                    data={
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "redirect_uri": f"{APP_URL}/auth/callback",
+                        "client_id": LINKEDIN_CLIENT_ID,
+                        "client_secret": LINKEDIN_CLIENT_SECRET,
+                    },
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                )
+
+                token_res.raise_for_status()
+
+                access_token = token_res.json()["access_token"]
+
+                info_res = await http.get(
+                    "https://api.linkedin.com/v2/userinfo",
+                    headers={
+                        "Authorization": f"Bearer {access_token}"
+                    },
+                )
+
+                info_res.raise_for_status()
+
+                info = info_res.json()
+
+                email = (info.get("email") or "").lower()
+                name = (
+                    info.get("name")
+                    or f"{info.get('given_name','')} {info.get('family_name','')}".strip()
+                )
+                avatar = info.get("picture")
+                provider_id = info.get("sub")
+
+            # ================= MICROSOFT =================
+            elif provider == "microsoft":
+
+                token_res = await http.post(
+                    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                    data={
+                        "client_id": MICROSOFT_CLIENT_ID,
+                        "client_secret": MICROSOFT_CLIENT_SECRET,
+                        "code": code,
+                        "redirect_uri": f"{APP_URL}/auth/callback",
+                        "grant_type": "authorization_code",
+                        "scope": "openid email profile User.Read",
+                    },
+                )
+
+                token_res.raise_for_status()
+
+                access_token = token_res.json()["access_token"]
+
+                info_res = await http.get(
+                    "https://graph.microsoft.com/v1.0/me",
+                    headers={
+                        "Authorization": f"Bearer {access_token}"
+                    },
+                )
+
+                info_res.raise_for_status()
+
+                info = info_res.json()
+
+                email = (
+                    info.get("mail")
+                    or info.get("userPrincipalName")
+                    or ""
+                ).lower()
+
+                name = info.get("displayName")
+                avatar = None
+                provider_id = info.get("id")
+
+            else:
+                raise Exception(f"Unsupported provider: {provider}")
+
+        if not email:
+            raise Exception("No email returned by provider")
+
+        doc = await users_col.find_one({"email": email})
+
+        if doc:
+            user = User.from_mongo(doc)
+
+            updates = {
+                "last_login_at": now_iso(),
+                "avatar": avatar or user.avatar,
+            }
+
+            # Update name if it's missing or different
+            if name and user.name != name:
+                updates["name"] = name
+
+            await users_col.update_one(
+                {"_id": ObjectId(user.id)},
+                {"$set": updates},
+            )
+
+            # Keep the in-memory object in sync with MongoDB
+            user.last_login_at = updates["last_login_at"]
+            user.avatar = updates["avatar"]
+            if "name" in updates:
+                user.name = updates["name"]
+
+        else:
+            user = User(
+                email=email,
+                name=name,
+                avatar=avatar,
+                provider=provider,
+                provider_id=provider_id,
+                email_verified=True,
+                last_login_at=now_iso(),
+            )
+
+            result = await users_col.insert_one(user.to_mongo())
+            user.id = str(result.inserted_id)
+
+            await get_or_create_wallet(user.id)
+
+        access = create_access_token(user.id, user.role)
+        refresh = create_refresh_token(user.id)
+
+        await store_session(
+            user.id,
+            refresh,
+            request.headers.get("user-agent", ""),
+            request.client.host if request.client else "",
+        )
+
+        params = urllib.parse.urlencode(
+            {
+                "success": "true",
+                "access_token": access,
+                "refresh_token": refresh,
+            }
+        )
+
+        return RedirectResponse(f"iemaai://auth?{params}")
+
+    except Exception as e:
+        logger.exception("OAuth callback failed")
+
+        return RedirectResponse(
+            f"iemaai://auth?success=false&error={urllib.parse.quote(str(e))}"
+        )
 
 @router.post("/register", response_model=dict)
 @limiter.limit("5/hour")
@@ -327,6 +595,14 @@ async def google_id_token_verify(req: GoogleIdTokenRequest, request: Request):
 
 @router.post("/google", response_model=dict)
 async def google_oauth(req: OAuthCodeRequest, request: Request):
+    logger.info("========== GOOGLE OAUTH ==========")
+    logger.info(f"Code present: {bool(req.code)}")
+    logger.info(f"Redirect URI: {req.redirect_uri}")
+    logger.info(f"Client ID: {GOOGLE_CLIENT_ID}")
+    logger.info(f"Host: {request.headers.get('host')}")
+    logger.info(f"Origin: {request.headers.get('origin')}")
+    logger.info(f"Referer: {request.headers.get('referer')}")
+    logger.info("==================================")
     """Exchange Google OAuth authorization code for user session."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Google OAuth not configured")
@@ -343,7 +619,11 @@ async def google_oauth(req: OAuthCodeRequest, request: Request):
             },
         )
         if token_res.status_code != 200:
-            logger.error(f"Google token exchange failed: {token_res.text}")
+            logger.error("Google token exchange failed")
+            logger.error(f"Status: {token_res.status_code}")
+            logger.error(f"Response: {token_res.text}")
+            logger.error(f"Redirect URI used: {req.redirect_uri}")
+            logger.error(f"Client ID: {GOOGLE_CLIENT_ID}")
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "OAuth token exchange failed")
         tokens = token_res.json()
         access_token = tokens.get("access_token")

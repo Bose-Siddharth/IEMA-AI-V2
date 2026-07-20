@@ -1,0 +1,12 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo "Packaging Backend..."
+      - cd Backend
+      - zip -r ../backend.zip .
+
+artifacts:
+  files:
+    - backend.zip
