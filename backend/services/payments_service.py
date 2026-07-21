@@ -4,6 +4,7 @@ All three call `_credit_plan(user_id, plan_id, source, ref_id)` on success — o
 """
 import os
 import json
+import math
 import logging
 from typing import Optional, Dict, Any
 import httpx
@@ -56,6 +57,11 @@ async def get_usd_to_inr() -> float:
         return c["rate"] or FX_FALLBACK
 
 
+def round_up_inr(amount_inr: float) -> int:
+    """Round INR UP to the nearest ₹100 — clean price (₹1,968 → ₹2,000), never undercharge."""
+    return int(math.ceil(amount_inr / 100.0) * 100)
+
+
 # ==================== plan crediting ====================
 async def _credit_plan(user_id: str, plan_id: str, source: str, ref_id: str) -> None:
     plan = await get_plan(plan_id)
@@ -93,8 +99,8 @@ async def get_or_create_rzp_plan(iema_plan_id: str) -> str:
     # Razorpay India accounts only support INR. Convert USD → INR at the live rate.
     price_usd = float(plan.get("price_usd") or 0)
     rate = await get_usd_to_inr()
-    price_inr = float(plan.get("price_inr") or (price_usd * rate))
-    amount = int(round(price_inr * 100))  # paise
+    price_inr = round_up_inr(float(plan.get("price_inr") or (price_usd * rate)))
+    amount = price_inr * 100  # paise
 
     existing = await _razorpay_plan_map_col.find_one({"_id": iema_plan_id})
     if existing and existing.get("rzp_plan_id") and existing.get("amount") == amount and existing.get("period") == period:
