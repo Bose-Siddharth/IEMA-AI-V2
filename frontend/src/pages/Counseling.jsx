@@ -44,6 +44,25 @@ export default function Counseling() {
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, loading]);
   useEffect(() => () => window.speechSynthesis?.cancel(), []);  // stop TTS on unmount
 
+  // Pick a female English voice as the default. ponytail: name-heuristic — Web Speech
+  // exposes no gender field, so we match known female voice names; falls back to any voice.
+  const voiceRef = useRef(null);
+  useEffect(() => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const pick = () => {
+      const voices = synth.getVoices();
+      if (!voices.length) return;
+      const en = voices.filter(v => /^en/i.test(v.lang));
+      const pool = en.length ? en : voices;
+      const female = pool.find(v => /female|woman|zira|samantha|susan|karen|tessa|fiona|moira|serena|victoria|allison|joanna|salli|kendra|hazel|linda|heera|aria|jenny|sonia|neerja|google uk english female|google us english/i.test(v.name));
+      voiceRef.current = female || pool[0] || null;
+    };
+    pick();
+    synth.addEventListener('voiceschanged', pick);
+    return () => synth.removeEventListener('voiceschanged', pick);
+  }, []);
+
   const speak = (text, idx) => {
     const synth = window.speechSynthesis;
     if (!synth) return toast.error('Text-to-speech not supported in this browser');
@@ -52,6 +71,7 @@ export default function Counseling() {
     // strip markdown so it reads cleanly
     const clean = text.replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/[*_`#>]/g, '');
     const u = new SpeechSynthesisUtterance(clean);
+    if (voiceRef.current) { u.voice = voiceRef.current; u.lang = voiceRef.current.lang; }
     u.onend = u.onerror = () => setSpeakingIdx(null);
     setSpeakingIdx(idx);
     synth.speak(u);

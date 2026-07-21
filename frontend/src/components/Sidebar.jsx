@@ -15,24 +15,29 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
-const featureNav = [
-  { to: '/studio', label: 'AI Studio', Icon: Sparkles, tid: 'nav-studio' },
-  { to: '/chat', label: 'AI Workspace', Icon: MessageSquare, tid: NAV.linkChat },
-  { label: 'Code Builder', Icon: Code2, children: [
-    { to: '/builder', label: 'Static Code Builder', Icon: FileText, tid: 'nav-builder' },
-    { label: 'Dynamic Code Builder', Icon: Rocket, locked: true },
+const SECTIONS = [
+  { key: 'ai', title: 'AI', items: [
+    { to: '/studio', label: 'AI Studio', Icon: Sparkles, tid: 'nav-studio' },
+    { to: '/chat', label: 'AI Workspace', Icon: MessageSquare, tid: NAV.linkChat },
   ] },
-  { to: '/counseling', label: 'Counseling', Icon: Heart, tid: 'nav-counseling' },
-  { to: '/career', label: 'Career Intelligence', Icon: Briefcase, tid: 'nav-career' },
-];
-
-const settingsNav = [
-  { to: '/usage', label: 'Usage', Icon: BarChart3, tid: NAV.linkUsage },
-  { to: '/wallet', label: 'Credit Wallet', Icon: Wallet, tid: NAV.linkWallet },
-  { to: '/billing', label: 'Billing', Icon: CreditCard, tid: NAV.linkBilling },
-  { to: '/notifications', label: 'Notifications', Icon: Bell, tid: NAV.linkNotifications },
-  { to: '/profile', label: 'Profile', Icon: UserIcon, tid: NAV.linkProfile },
-  { to: '/settings', label: 'Settings', Icon: Settings, tid: NAV.linkSettings },
+  { key: 'build', title: 'Build', items: [
+    { label: 'Code Builder', Icon: Code2, children: [
+      { to: '/builder', label: 'Static Builder', Icon: FileText, tid: 'nav-builder' },
+      { label: 'Dynamic Builder', Icon: Rocket, locked: true },
+    ] },
+  ] },
+  { key: 'learn', title: 'Learn', items: [
+    { to: '/counseling', label: 'Counseling', Icon: Heart, tid: 'nav-counseling' },
+    { to: '/career', label: 'Career Intelligence', Icon: Briefcase, tid: 'nav-career' },
+  ] },
+  { key: 'account', title: 'Account', items: [
+    { to: '/usage', label: 'Usage', Icon: BarChart3, tid: NAV.linkUsage },
+    { to: '/wallet', label: 'Credit Wallet', Icon: Wallet, tid: NAV.linkWallet },
+    { to: '/billing', label: 'Billing', Icon: CreditCard, tid: NAV.linkBilling },
+    { to: '/notifications', label: 'Notifications', Icon: Bell, tid: NAV.linkNotifications },
+    { to: '/profile', label: 'Profile', Icon: UserIcon, tid: NAV.linkProfile },
+    { to: '/settings', label: 'Settings', Icon: Settings, tid: NAV.linkSettings },
+  ] },
 ];
 
 const comingSoon = [
@@ -53,7 +58,7 @@ export default function Sidebar({ onMobileClose, mobile = false }) {
   const user = useSelector((s) => s.auth.user);
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const [open, setOpen] = useState({ features: true, settings: true });
+  const [open, setOpen] = useState({});  // section/submenu keys default to open
 
   const handleLogout = () => {
     dispatch(logout());
@@ -121,17 +126,18 @@ export default function Sidebar({ onMobileClose, mobile = false }) {
 
   const renderSection = (key, title, items) => {
     if (collapsed) return renderNav(items);  // icon-only: no headers, always shown
+    const isOpen = open[key] !== false;  // default expanded
     return (
       <>
         <button
           type="button"
-          onClick={() => setOpen((o) => ({ ...o, [key]: !o[key] }))}
+          onClick={() => setOpen((o) => ({ ...o, [key]: o[key] === false }))}
           className="flex items-center gap-1 w-full px-2.5 pb-2 text-[11px] uppercase tracking-wider text-muted-foreground/70 font-medium hover:text-muted-foreground"
         >
-          <ChevronDown className={cn('h-3 w-3 transition-transform', !open[key] && '-rotate-90')} strokeWidth={2.5} />
+          <ChevronDown className={cn('h-3 w-3 transition-transform', !isOpen && '-rotate-90')} strokeWidth={2.5} />
           <span>{title}</span>
         </button>
-        {open[key] && renderNav(items)}
+        {isOpen && renderNav(items)}
       </>
     );
   };
@@ -198,11 +204,11 @@ export default function Sidebar({ onMobileClose, mobile = false }) {
 
         {/* Main nav */}
         <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
-          {renderSection('features', 'Features', featureNav)}
-
-          <div className={cn(!collapsed && 'pt-4')}>
-            {renderSection('settings', 'Settings', settingsNav)}
-          </div>
+          {SECTIONS.map((s, i) => (
+            <div key={s.key} className={cn(i > 0 && !collapsed && 'pt-4')}>
+              {renderSection(s.key, s.title, s.items)}
+            </div>
+          ))}
 
           {user?.role === 'admin' && (
             <NavLink to="/admin" className={linkClass} data-testid={NAV.linkAdmin} onClick={onMobileClose}>
