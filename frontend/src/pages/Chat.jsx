@@ -8,7 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
   Send, Sparkles, MessageSquare, Trash2, Pin, PinOff, Loader2,
-  Copy, Check, Search, Plus, Paperclip, X, ImageIcon, ChevronRight
+  Copy, Check, Search, Plus, Paperclip, X, ImageIcon, ChevronRight,
+  Share2, GraduationCap, Activity, Briefcase, Megaphone, Palette, Smile, Target, Plane
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -18,60 +19,87 @@ import 'highlight.js/styles/github-dark.css';
 import { CHAT } from '@/constants/testIds';
 import { cn } from '@/lib/utils';
 
+// Each prompt has a short `title` (shown in the list) and the full `prompt` inserted on click.
 const TEMPLATE_CATEGORIES = [
-  { category: 'Learn', prompts: [
-    'Explain quantum entanglement like I\'m five',
-    'Summarize the theory of relativity in plain English',
-    'What\'s the difference between AI, ML, and deep learning?',
-    'Give me a 5-step plan to learn SQL from scratch',
+  { category: 'Social', Icon: Share2, prompts: [
+    { title: 'Tweet', prompt: "Write a tweet.\nTopic: Climate change.\nTone of voice: Disappointed." },
+    { title: 'LinkedIn Post', prompt: "Create a LinkedIn post.\nTopic: AI race.\nTone of voice: Professional." },
+    { title: 'Instagram Caption', prompt: "Write an Instagram caption.\nTopic: AI art generation.\nTone of voice: Creative." },
+    { title: 'TikTok Caption', prompt: "Write a TikTok caption.\nTopic: AI video creation.\nTone of voice: Creative." },
+    { title: 'Gift Suggestions', prompt: "Act as a gift recommender. Your first message should be: 'Who do you want to buy a gift for and what are their interests?'" },
+    { title: 'Text to Emoji', prompt: "Act as an emoji generator. Create emojis for: 'spicy girls'." },
+    { title: 'Motivate Others', prompt: "Generate unique and inspiring phrases to motivate others on social media." },
+    { title: 'YouTube Video Script', prompt: "Write a super engaging YouTube script outline about Artificial General Intelligence in the creative industry." },
   ] },
-  { category: 'Code', prompts: [
-    'Write a Python script to parse a CSV and plot the results',
-    'Explain this error: "TypeError: cannot read property of undefined"',
-    'Compare React vs Vue for a startup MVP',
-    'Write unit tests for a function that validates emails',
+  { category: 'Education', Icon: GraduationCap, prompts: [
+    { title: 'English Teacher', prompt: "Act as an English teacher. Focus on pronunciation. Summarize the topic in two paragraphs. First topic: Adjective." },
+    { title: 'Math Teacher', prompt: "Act as a math teacher. Solve: 346 × 569." },
+    { title: 'Essay Writer', prompt: "Write a 1000-word APA-style essay.\nTopic: AI and Human Behaviors.\nResearch Question: How can artificial intelligence feed human intelligence?" },
+    { title: 'Translator', prompt: "Translate the following sentence into Spanish: 'hello'." },
+    { title: 'Text Corrector', prompt: "Correct and improve: 'Don't shy before other'." },
+    { title: 'Explain', prompt: "Explain: Black hole." },
   ] },
-  { category: 'Write', prompts: [
-    'Draft a landing page hero for a fintech',
-    'Write a professional email requesting a deadline extension',
-    'Turn these bullet points into a LinkedIn post',
-    'Rewrite this paragraph to sound more concise',
+  { category: 'Health & Nutrition', Icon: Activity, prompts: [
+    { title: 'Dietitian', prompt: "Design a bodybuilding recipe for 2 people with approximately 500 calories per serving and a low glycemic index." },
+    { title: 'Life Coach', prompt: "Act as a life coach. First message: 'How are you feeling today?, how can I help you?'" },
+    { title: 'Fitness Plan', prompt: "Create a muscle-building fitness plan for someone who is currently not exercising." },
+    { title: 'Meal Generator', prompt: "Prepare a vegan dinner using carrots, broccoli, corn, and soy milk." },
+    { title: 'Yoga', prompt: "Describe six safe and effective yoga poses suitable for people of all ages." },
+    { title: 'Better Sleep', prompt: "Ask my age and average sleep hours before giving three recommendations to improve sleep." },
+    { title: 'Calorie Calculator', prompt: "Ask my age, gender, height, weight, activity level, and weight goal before calculating daily calorie needs." },
+    { title: 'Health YouTube Channels', prompt: "Recommend 10 YouTube channels about health, nutrition, and sports." },
+    { title: 'Training Plan', prompt: "Generate a hypertrophy training plan with 4 workouts per week and 1-hour sessions." },
   ] },
-  { category: 'Career', prompts: [
-    'Review and improve my resume bullet points',
-    'Prepare me for a backend system-design interview',
-    'What skills should I learn for a data analyst role?',
-    'Write a cover letter for a software engineer position',
+  { category: 'Business', Icon: Briefcase, prompts: [
+    { title: 'Email Writer', prompt: "Generate a formal and impactful email using the details I provide." },
+    { title: 'Legal Action', prompt: "Explain possible legal actions after a car accident where I was not at fault." },
+    { title: 'Blog Ideas', prompt: "Generate blog post ideas about real estate." },
+    { title: 'Mock Interview', prompt: "Conduct a job interview for an Office Clerk position, asking one question at a time." },
+    { title: 'Advertiser', prompt: "Write an advertisement for the iPhone 14." },
+    { title: 'Job Description', prompt: "Write a Marketing Head job description requiring at least 8 years of experience." },
   ] },
-  { category: 'Business', prompts: [
-    'Write a one-page business plan for a SaaS idea',
-    'Draft a cold outreach email to a potential client',
-    'Create a SWOT analysis for a food-delivery startup',
-    'Suggest 5 pricing models for a mobile app',
+  { category: 'Marketing', Icon: Megaphone, prompts: [
+    { title: 'Sell Me This Pen', prompt: "Sell me this pen creatively, concisely, and persuasively." },
+    { title: 'Digital Marketing Strategy', prompt: "Explain digital marketing strategies for selling shoes in one paragraph." },
+    { title: 'Social Media Manager', prompt: "Help manage an organization's Twitter account to increase brand awareness." },
+    { title: 'SEO Generator', prompt: "Write a short SEO-friendly paragraph about the lifestyle of lions." },
+    { title: 'Marketing Plan', prompt: "Ask about my product, then generate target audience, pain points, marketing copy, video script, and SEO keywords." },
+    { title: 'Caption Generator', prompt: "Generate 10 Instagram captions about Fitness and Wellness with emojis and a profile-click CTA." },
   ] },
-  { category: 'Marketing', prompts: [
-    'Write 5 catchy taglines for an eco-friendly brand',
-    'Plan a 7-day Instagram content calendar',
-    'Write ad copy for a Google Search campaign',
-    'Suggest SEO keywords for a fitness blog',
+  { category: 'Artist', Icon: Palette, prompts: [
+    { title: 'Poem', prompt: "Write a poem about love." },
+    { title: 'Storyteller', prompt: "Tell a story about a non-technological person entering a high-tech world." },
+    { title: 'Song Recommendations', prompt: "Recommend five Hip-Hop songs with a millionaire mood." },
+    { title: 'Lyrics', prompt: "Write original romantic song lyrics inspired by the storytelling style of classic love songs." },
+    { title: 'Short Movie', prompt: "Write an original short movie screenplay." },
   ] },
-  { category: 'Productivity', prompts: [
-    'Turn this messy to-do list into a prioritized plan',
-    'Summarize this meeting transcript into action items',
-    'Write a template for weekly status updates',
-    'Help me plan my day around 3 deep-work blocks',
+  { category: 'Fun', Icon: Smile, prompts: [
+    { title: 'Dream Interpreter', prompt: "Interpret a dream about being chased by a giant spider." },
+    { title: 'Math Joke', prompt: "Tell a joke about math." },
+    { title: 'Emoji Translator', prompt: "Convert 'That's what she said.' into emojis." },
+    { title: 'Space Advice', prompt: "Give spacecraft advice in the style of Elon Musk." },
+    { title: 'Games', prompt: "Suggest games we can play together in chat." },
+    { title: 'Role Play', prompt: "Role-play in a rainforest where you are a kind little pterosaur guiding me." },
   ] },
-  { category: 'Study', prompts: [
-    'Create a study schedule for final exams in 2 weeks',
-    'Make 10 flashcards on the French Revolution',
-    'Explain the Krebs cycle step by step',
-    'Quiz me on basic data structures',
+  { category: 'Career', Icon: Target, prompts: [
+    { title: 'Password Generator', prompt: "Generate a secure password." },
+    { title: 'To-Do List Creator', prompt: "Ask about my goal and knowledge level before creating a to-do list." },
+    { title: 'Interview Questions', prompt: "Generate 10 interview questions for a Marketing Head." },
+    { title: 'Career Counselor', prompt: "Advise someone pursuing a career in software engineering." },
+    { title: 'Self-Help', prompt: "Provide advice on staying motivated during difficult times." },
+    { title: 'Statistician', prompt: "Calculate how many million banknotes are in active use in the world." },
+    { title: 'Financial Planning', prompt: "Provide financial planning guidance." },
+    { title: 'Resume Editor', prompt: "Edit and improve my resume using the information I provide." },
   ] },
-  { category: 'Creative', prompts: [
-    'Write a short sci-fi story about a lonely satellite',
-    'Suggest names for a cozy coffee shop',
-    'Write a haiku about monsoon in Kolkata',
-    'Brainstorm plot twists for a mystery novel',
+  { category: 'Travel', Icon: Plane, prompts: [
+    { title: 'Travel Checklist', prompt: "Create a travel checklist for Iceland in August." },
+    { title: 'Places to Visit', prompt: "Recommend beach destinations in America." },
+    { title: 'Best Time to Visit', prompt: "When is the best time to visit Iceland?" },
+    { title: 'France Activities', prompt: "Create a travel guide for France with must-see activities." },
+    { title: 'Alaska Food Trip', prompt: "Plan a 3-day Alaska trip focused on croissants and local foods." },
+    { title: 'Budget Travel', prompt: "Create a France travel guide with budgeting tips." },
+    { title: 'Vacation Planner', prompt: "Plan a low-budget 3-day summer trip to Sydney focused on local attractions and theatre." },
+    { title: 'Safe Travel Advisor', prompt: "Ask where I want to visit, then explain important cultural traditions and legal considerations." },
   ] },
 ];
 
@@ -268,7 +296,7 @@ export default function Chat() {
             className="flex items-center gap-1 px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground/70 font-medium hover:text-muted-foreground"
           >
             <ChevronRight className={cn('h-3 w-3 transition-transform', tplOpen && 'rotate-90')} strokeWidth={2.5} />
-            <span>Templates</span>
+            <span>Suggested Prompts</span>
           </button>
           {tplOpen && (
             <div className="overflow-y-auto px-2 pb-2 max-h-[40vh]">
@@ -280,18 +308,20 @@ export default function Chat() {
                       onClick={() => setOpenTpl(isOpen ? null : idx)}
                       className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                     >
-                      <ChevronRight className={cn('h-3.5 w-3.5 flex-shrink-0 transition-transform', isOpen && 'rotate-90')} />
+                      <c.Icon className="h-4 w-4 flex-shrink-0 text-primary/70" />
                       <span className="truncate flex-1 text-left">{c.category}</span>
+                      <ChevronRight className={cn('h-3.5 w-3.5 flex-shrink-0 transition-transform', isOpen && 'rotate-90')} />
                     </button>
                     {isOpen && (
                       <div className="pb-1">
                         {c.prompts.map((p) => (
                           <button
-                            key={p}
-                            onClick={() => setInput(p)}
+                            key={p.title}
+                            onClick={() => setInput(p.prompt)}
+                            title={p.prompt}
                             className="w-full text-left rounded-md pl-8 pr-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                           >
-                            {p}
+                            {p.title}
                           </button>
                         ))}
                       </div>
@@ -346,20 +376,22 @@ export default function Chat() {
                       key={c.category}
                       onClick={() => setPromptCat(idx)}
                       className={cn(
-                        'px-3.5 py-1.5 rounded-full text-sm border transition-all',
+                        'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm border transition-all',
                         promptCat === idx
                           ? 'border-primary bg-primary/10 text-foreground shadow-sm'
                           : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
                       )}
                     >
+                      <c.Icon className="h-3.5 w-3.5" />
                       {c.category}
                     </button>
                   ))}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {TEMPLATE_CATEGORIES[promptCat].prompts.map((s) => (
-                    <button key={s} onClick={() => setInput(s)} className="text-left rounded-lg border border-border bg-card hover:border-primary/40 transition-colors px-4 py-3 text-sm">
-                      {s}
+                    <button key={s.title} onClick={() => setInput(s.prompt)} className="text-left rounded-lg border border-border bg-card hover:border-primary/40 transition-colors px-4 py-3">
+                      <div className="text-sm font-medium">{s.title}</div>
+                      <div className="text-xs text-muted-foreground mt-1 line-clamp-2 whitespace-pre-line">{s.prompt}</div>
                     </button>
                   ))}
                 </div>
