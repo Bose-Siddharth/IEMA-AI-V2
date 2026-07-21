@@ -10,13 +10,10 @@ import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const HISTORY_KEY = 'counseling_history';
-const loadHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; } };
-
 const MODES = [
-  { key: 'career', label: 'Career', Icon: Briefcase, hint: 'Confidential career advice. India tech context.', accent: 'from-indigo-500/20 to-indigo-500/5' },
-  { key: 'psychology', label: 'Wellness', Icon: Heart, hint: 'Not a licensed therapist. Compassionate listening.', accent: 'from-rose-500/20 to-rose-500/5' },
-  { key: 'academic', label: 'Academic', Icon: GraduationCap, hint: 'Study plans, exam strategies, free resources.', accent: 'from-emerald-500/20 to-emerald-500/5' },
+  { key: 'career', label: 'Career', Icon: Briefcase, hint: 'Confidential career advice. India tech context.', accent: 'from-indigo-500/20 to-indigo-500/5', hero: 'counseling-hero.png' },
+  { key: 'psychology', label: 'Wellness', Icon: Heart, hint: 'Not a licensed therapist. Compassionate listening.', accent: 'from-rose-500/20 to-rose-500/5', hero: 'counseling-hero-wellness.png' },
+  { key: 'academic', label: 'Academic', Icon: GraduationCap, hint: 'Study plans, exam strategies, free resources.', accent: 'from-emerald-500/20 to-emerald-500/5', hero: 'counseling-hero-academic.png' },
 ];
 
 export default function Counseling() {
@@ -25,12 +22,19 @@ export default function Counseling() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [speakingIdx, setSpeakingIdx] = useState(null);
-  const [history, setHistory] = useState(loadHistory);
+  const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const dispatch = useDispatch();
   const scrollRef = useRef(null);
   const pendingRestore = useRef(null);
   const activeMode = MODES.find(m => m.key === mode);
+
+  // Load history from backend (syncs across devices) — normalize to {id, mode, q, a, ts}.
+  useEffect(() => {
+    api.get('/counseling/history')
+      .then(({ data }) => setHistory(data.items.map(it => ({ id: it.id, mode: it.mode, q: it.question, a: it.answer, ts: it.created_at }))))
+      .catch(() => {});
+  }, []);
 
   // Reset thread when the user switches mode — unless we're restoring a history item.
   useEffect(() => {
@@ -65,12 +69,8 @@ export default function Counseling() {
         role: 'assistant', text: data.response, source: data.source,
         score: data.score, disclaimer: data.disclaimer, credits: data.credits_used,
       }]);
-      const entry = { mode, q: text, a: data.response, ts: Date.now() };
-      setHistory(prev => {
-        const next = [entry, ...prev].slice(0, 30);
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-        return next;
-      });
+      // Backend already persisted this exchange — reflect it locally (newest first).
+      setHistory(prev => [{ mode, q: text, a: data.response, ts: new Date().toISOString() }, ...prev]);
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Counsel failed');
     } finally { setLoading(false); }
@@ -83,7 +83,10 @@ export default function Counseling() {
     else setMessages(restored);
   };
 
-  const clearHistory = () => { localStorage.removeItem(HISTORY_KEY); setHistory([]); };
+  const clearHistory = async () => {
+    try { await api.delete('/counseling/history'); setHistory([]); }
+    catch { toast.error('Could not clear history'); }
+  };
 
   return (
     <div className="h-full flex flex-col" data-testid="counseling-page">
@@ -168,8 +171,8 @@ export default function Counseling() {
         <div className="max-w-3xl mx-auto space-y-4" data-testid="counseling-thread">
           {messages.length === 0 && (
             <img
-              src={`${process.env.PUBLIC_URL}/counseling-hero.png`}
-              alt="Start a private conversation — private, judgement-free, ask anything"
+              src={`${process.env.PUBLIC_URL}/${activeMode.hero}`}
+              alt={`${activeMode.label} — start a private conversation`}
               className="w-full rounded-2xl border border-border"
               data-testid="counseling-empty-hero"
             />
