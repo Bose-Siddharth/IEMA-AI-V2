@@ -2,7 +2,7 @@
   "expo": {
     "name": "IEMA.ai",
     "slug": "iema-ai",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "automatic",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.iemaai.app",
-      "buildNumber": "1",
+      "buildNumber": "28",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "IEMA.ai needs access to your photos to attach images to your chats.",
         "NSCameraUsageDescription": "IEMA.ai needs access to your camera to attach photos to your chats.",
@@ -28,14 +28,13 @@
     },
     "android": {
       "package": "com.iemaai.app",
-      "versionCode": 8,
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#3b82f6"
       },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
         "android.permission.INTERNET"
       ],
       "blockedPermissions": [
@@ -73,7 +72,7 @@
       "expo-font",
       "expo-web-browser"
     ],
-    "extra": {  
+    "extra": {
       "apiBaseUrl": "https://api.iema.ai",
       "eas": {
         "projectId": "d6e0dba8-f63e-40a4-8cba-baa765a2f423"

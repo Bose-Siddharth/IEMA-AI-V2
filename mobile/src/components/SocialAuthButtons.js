@@ -183,12 +183,7 @@ export default function SocialAuthButtons() {
     if (res.type !== "success" || !res.url) return null;
     // Returning URL is `iemaai://auth?access_token=…&refresh_token=…&user=…`
     const q = res.url.split("?")[1] || "";
-    const params = Object.fromEntries(
-      q
-        .split("&")
-        .filter(Boolean)
-        .map((p) => p.split("=").map(decodeURIComponent))
-    );
+    const params = Object.fromEntries(new URLSearchParams(q).entries());
     if (params.error) throw new Error(params.error);
     if (!params.access_token) throw new Error("No token returned");
     return {

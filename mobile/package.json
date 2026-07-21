@@ -37,6 +37,7 @@
     "lucide-react-native": "^1.25.0",
     "react": "19.0.0",
     "react-native": "0.79.6",
+    "react-native-fetch-api": "^3.0.0",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-markdown-display": "^7.0.2",
     "react-native-reanimated": "~3.17.4",
