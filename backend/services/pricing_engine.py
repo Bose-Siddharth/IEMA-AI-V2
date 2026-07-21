@@ -137,8 +137,10 @@ async def list_plans() -> list:
 
 
 async def set_plan(plan_id: str, updates: Dict[str, Any]) -> None:
+    # price_usd / price_inr / billing_period are intentionally NOT editable after
+    # creation — pricing is fixed, so admin PATCH cannot change them (UI locks them too).
     allowed = {"name", "monthly_credits", "window_hours", "window_credits",
-               "price_usd", "price_inr", "billing_period", "is_free", "one_time", "priority"}
+               "is_free", "one_time", "priority"}
     clean = {k: v for k, v in updates.items() if k in allowed}
     clean["updated_at"] = now_iso()
     await plans_col.update_one({"_id": plan_id}, {"$set": clean}, upsert=True)

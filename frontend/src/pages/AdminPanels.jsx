@@ -292,11 +292,11 @@ export function PlansPanel() {
               <PlanField label="Monthly credits" value={val('monthly_credits')} onChange={(v) => patch(p.plan_id, 'monthly_credits', v)} testid={`admin-plan-${p.plan_id}-monthly`} />
               <PlanField label="Window hours" value={val('window_hours')} onChange={(v) => patch(p.plan_id, 'window_hours', v)} testid={`admin-plan-${p.plan_id}-hours`} />
               <PlanField label="Credits / window" value={val('window_credits')} onChange={(v) => patch(p.plan_id, 'window_credits', v)} testid={`admin-plan-${p.plan_id}-cap`} />
-              <PlanField label="Price $ (USD)" value={val('price_usd')} onChange={(v) => patch(p.plan_id, 'price_usd', v)} testid={`admin-plan-${p.plan_id}-price`} />
+              <PlanField label="Price $ (USD)" value={val('price_usd')} onChange={(v) => patch(p.plan_id, 'price_usd', v)} testid={`admin-plan-${p.plan_id}-price`} disabled />
               <div>
                 <Label className="text-xs text-muted-foreground">Billing period</Label>
-                <select value={val('billing_period') || 'monthly'} onChange={(ev) => patch(p.plan_id, 'billing_period', ev.target.value)}
-                  className="w-full h-8 mt-1 text-sm rounded-md border border-border bg-background px-2">
+                <select value={val('billing_period') || 'monthly'} disabled
+                  className="w-full h-8 mt-1 text-sm rounded-md border border-border bg-background px-2 disabled:opacity-50 disabled:cursor-not-allowed">
                   <option value="one_time">One-time</option>
                   <option value="monthly">Monthly</option>
                   <option value="annual">Annual</option>
@@ -327,17 +327,38 @@ function NewPlanModal({ onClose, onCreated }) {
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" data-testid="admin-plan-new-modal">
       <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full space-y-3">
         <h3 className="font-display text-lg font-medium">New plan</h3>
-        <Input placeholder="plan_id (e.g. starter)" value={form.plan_id} onChange={(e) => setForm({ ...form, plan_id: e.target.value })} data-testid="admin-plan-new-id" />
-        <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="admin-plan-new-name" />
-        <div className="grid grid-cols-2 gap-2">
-          <Input type="number" placeholder="Monthly credits" value={form.monthly_credits} onChange={(e) => setForm({ ...form, monthly_credits: parseFloat(e.target.value) })} />
-          <Input type="number" placeholder="Price USD" value={form.price_usd} onChange={(e) => setForm({ ...form, price_usd: parseFloat(e.target.value) })} />
-          <Input type="number" placeholder="Window hours" value={form.window_hours} onChange={(e) => setForm({ ...form, window_hours: parseInt(e.target.value) })} />
-          <Input type="number" placeholder="Credits/window" value={form.window_credits} onChange={(e) => setForm({ ...form, window_credits: parseFloat(e.target.value) })} />
+        <div>
+          <Label className="text-xs text-muted-foreground">Plan ID</Label>
+          <Input placeholder="plan_id (e.g. starter)" value={form.plan_id} onChange={(e) => setForm({ ...form, plan_id: e.target.value })} className="mt-1" data-testid="admin-plan-new-id" />
         </div>
-        <select value={form.billing_period} onChange={(e) => setForm({ ...form, billing_period: e.target.value })} className="w-full h-9 text-sm rounded-md border border-border bg-background px-2">
-          <option value="one_time">One-time</option><option value="monthly">Monthly</option><option value="annual">Annual</option>
-        </select>
+        <div>
+          <Label className="text-xs text-muted-foreground">Name</Label>
+          <Input placeholder="Name (e.g. Starter)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" data-testid="admin-plan-new-name" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label className="text-xs text-muted-foreground">Monthly credits</Label>
+            <Input type="number" value={form.monthly_credits} onChange={(e) => setForm({ ...form, monthly_credits: parseFloat(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Price $ (USD)</Label>
+            <Input type="number" value={form.price_usd} onChange={(e) => setForm({ ...form, price_usd: parseFloat(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Window hours</Label>
+            <Input type="number" value={form.window_hours} onChange={(e) => setForm({ ...form, window_hours: parseInt(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Credits / window</Label>
+            <Input type="number" value={form.window_credits} onChange={(e) => setForm({ ...form, window_credits: parseFloat(e.target.value) })} className="mt-1" />
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Billing period</Label>
+          <select value={form.billing_period} onChange={(e) => setForm({ ...form, billing_period: e.target.value })} className="w-full h-9 mt-1 text-sm rounded-md border border-border bg-background px-2">
+            <option value="one_time">One-time</option><option value="monthly">Monthly</option><option value="annual">Annual</option>
+          </select>
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={busy || !form.plan_id || !form.name} data-testid="admin-plan-new-submit">Create</Button>
@@ -410,12 +431,27 @@ function NewDiscountModal({ onClose, onCreated }) {
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full space-y-3">
         <h3 className="font-display text-lg font-medium">New discount code</h3>
-        <Input placeholder="Code (e.g. LAUNCH50)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} data-testid="admin-discount-new-code" />
+        <div>
+          <Label className="text-xs text-muted-foreground">Code</Label>
+          <Input placeholder="Code (e.g. LAUNCH50)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} className="mt-1" data-testid="admin-discount-new-code" />
+        </div>
         <div className="grid grid-cols-2 gap-2">
-          <Input type="number" placeholder="% off" value={form.percent_off} onChange={(e) => setForm({ ...form, percent_off: parseFloat(e.target.value) })} data-testid="admin-discount-new-percent" />
-          <Input type="number" placeholder="Flat $ off" value={form.flat_off_usd} onChange={(e) => setForm({ ...form, flat_off_usd: parseFloat(e.target.value) })} />
-          <Input type="number" placeholder="Max uses (0 = ∞)" value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: parseInt(e.target.value) })} />
-          <Input placeholder="applies_to (any | plan:pro)" value={form.applies_to} onChange={(e) => setForm({ ...form, applies_to: e.target.value })} />
+          <div>
+            <Label className="text-xs text-muted-foreground">% off</Label>
+            <Input type="number" placeholder="e.g. 20" value={form.percent_off} onChange={(e) => setForm({ ...form, percent_off: parseFloat(e.target.value) })} className="mt-1" data-testid="admin-discount-new-percent" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Flat $ off (USD)</Label>
+            <Input type="number" placeholder="e.g. 5" value={form.flat_off_usd} onChange={(e) => setForm({ ...form, flat_off_usd: parseFloat(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Max uses (0 = ∞)</Label>
+            <Input type="number" value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: parseInt(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Applies to</Label>
+            <Input placeholder="any | plan:pro" value={form.applies_to} onChange={(e) => setForm({ ...form, applies_to: e.target.value })} className="mt-1" />
+          </div>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -461,11 +497,11 @@ export function SubscriptionsPanel() {
   );
 }
 
-function PlanField({ label, value, onChange, testid }) {
+function PlanField({ label, value, onChange, testid, disabled }) {
   return (
     <div>
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input type="number" min="0" value={value} onChange={(e) => onChange(e.target.value)} className="h-8 mt-1 text-sm" data-testid={testid} />
+      <Input type="number" min="0" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="h-8 mt-1 text-sm" data-testid={testid} />
     </div>
   );
 }

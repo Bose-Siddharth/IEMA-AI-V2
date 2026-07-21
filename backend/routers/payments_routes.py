@@ -18,14 +18,13 @@ from models import (
 )
 from services.credit_service import add_credits
 from services.notification_service import notify
+from services.payments_service import get_usd_to_inr
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
-# Fixed USD→INR conversion rate — kept slightly padded so we never undercharge.
-USD_TO_INR = float(os.environ.get("USD_TO_INR_RATE", "85"))
 
 _razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)) if RAZORPAY_KEY_ID else None
 
@@ -56,7 +55,8 @@ async def create_razorpay_payment_link(req: RazorpayOrderRequest, request: Reque
         raise HTTPException(501, "Razorpay not configured")
     pack = await _get_pack(req.pack_slug, "usd")
     price_usd = float(pack["price"])
-    amount_paise = int(round(price_usd * USD_TO_INR * 100))
+    fx_rate = await get_usd_to_inr()
+    amount_paise = int(round(price_usd * fx_rate * 100))
     credits_val = float(pack["credits"] + pack.get("bonus_credits", 0))
     origin = str(request.headers.get("origin") or request.headers.get("referer") or "").rstrip("/") \
              or os.environ.get("APP_URL", "").rstrip("/")
@@ -96,7 +96,7 @@ async def create_razorpay_payment_link(req: RazorpayOrderRequest, request: Reque
         status="initiated",
         metadata={"user_id": user.id, "pack_slug": req.pack_slug,
                   "reference_id": ref_id, "amount_paise": amount_paise,
-                  "fx_rate": USD_TO_INR, "short_url": link.get("short_url")},
+                  "fx_rate": fx_rate, "short_url": link.get("short_url")},
     )
     await payment_transactions_col.insert_one(tx.to_mongo())
     return {
@@ -172,6 +172,12 @@ async def verify_razorpay(req: RazorpayVerifyRequest, user: User = Depends(get_c
         )
         await notify(user.id, "Purchase successful", f"{int(tx.credits)} credits added to your wallet.", kind="purchase")
     return {"ok": True, "credits": tx.credits}
+
+
+@router.get("/fx-rate")
+async def fx_rate():
+    """Current USD→INR rate (live, cached) so the Billing page can show ₹ prices."""
+    return {"rate": await get_usd_to_inr(), "currency": "INR"}
 
 
 @router.get("/plans")

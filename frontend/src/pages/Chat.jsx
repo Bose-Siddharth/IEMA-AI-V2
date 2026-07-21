@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
   Send, Sparkles, MessageSquare, Trash2, Pin, PinOff, Loader2,
-  Copy, Check, Search, Plus, Paperclip, X, ImageIcon
+  Copy, Check, Search, Plus, Paperclip, X, ImageIcon, ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -17,6 +17,63 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
 import { CHAT } from '@/constants/testIds';
 import { cn } from '@/lib/utils';
+
+const TEMPLATE_CATEGORIES = [
+  { category: 'Learn', prompts: [
+    'Explain quantum entanglement like I\'m five',
+    'Summarize the theory of relativity in plain English',
+    'What\'s the difference between AI, ML, and deep learning?',
+    'Give me a 5-step plan to learn SQL from scratch',
+  ] },
+  { category: 'Code', prompts: [
+    'Write a Python script to parse a CSV and plot the results',
+    'Explain this error: "TypeError: cannot read property of undefined"',
+    'Compare React vs Vue for a startup MVP',
+    'Write unit tests for a function that validates emails',
+  ] },
+  { category: 'Write', prompts: [
+    'Draft a landing page hero for a fintech',
+    'Write a professional email requesting a deadline extension',
+    'Turn these bullet points into a LinkedIn post',
+    'Rewrite this paragraph to sound more concise',
+  ] },
+  { category: 'Career', prompts: [
+    'Review and improve my resume bullet points',
+    'Prepare me for a backend system-design interview',
+    'What skills should I learn for a data analyst role?',
+    'Write a cover letter for a software engineer position',
+  ] },
+  { category: 'Business', prompts: [
+    'Write a one-page business plan for a SaaS idea',
+    'Draft a cold outreach email to a potential client',
+    'Create a SWOT analysis for a food-delivery startup',
+    'Suggest 5 pricing models for a mobile app',
+  ] },
+  { category: 'Marketing', prompts: [
+    'Write 5 catchy taglines for an eco-friendly brand',
+    'Plan a 7-day Instagram content calendar',
+    'Write ad copy for a Google Search campaign',
+    'Suggest SEO keywords for a fitness blog',
+  ] },
+  { category: 'Productivity', prompts: [
+    'Turn this messy to-do list into a prioritized plan',
+    'Summarize this meeting transcript into action items',
+    'Write a template for weekly status updates',
+    'Help me plan my day around 3 deep-work blocks',
+  ] },
+  { category: 'Study', prompts: [
+    'Create a study schedule for final exams in 2 weeks',
+    'Make 10 flashcards on the French Revolution',
+    'Explain the Krebs cycle step by step',
+    'Quiz me on basic data structures',
+  ] },
+  { category: 'Creative', prompts: [
+    'Write a short sci-fi story about a lonely satellite',
+    'Suggest names for a cozy coffee shop',
+    'Write a haiku about monsoon in Kolkata',
+    'Brainstorm plot twists for a mystery novel',
+  ] },
+];
 
 export default function Chat() {
   const [conversations, setConversations] = useState([]);
@@ -28,6 +85,9 @@ export default function Chat() {
   const [meta, setMeta] = useState(null);
   const [search, setSearch] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [promptCat, setPromptCat] = useState(0);
+  const [openTpl, setOpenTpl] = useState(null);
+  const [tplOpen, setTplOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -200,6 +260,49 @@ export default function Chat() {
             <Input placeholder="Search chats" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-sm" />
           </div>
         </div>
+
+        {/* Templates */}
+        <div className="border-b border-border flex flex-col" data-testid="chat-templates">
+          <button
+            onClick={() => setTplOpen((v) => !v)}
+            className="flex items-center gap-1 px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground/70 font-medium hover:text-muted-foreground"
+          >
+            <ChevronRight className={cn('h-3 w-3 transition-transform', tplOpen && 'rotate-90')} strokeWidth={2.5} />
+            <span>Templates</span>
+          </button>
+          {tplOpen && (
+            <div className="overflow-y-auto px-2 pb-2 max-h-[40vh]">
+              {TEMPLATE_CATEGORIES.map((c, idx) => {
+                const isOpen = openTpl === idx;
+                return (
+                  <div key={c.category}>
+                    <button
+                      onClick={() => setOpenTpl(isOpen ? null : idx)}
+                      className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    >
+                      <ChevronRight className={cn('h-3.5 w-3.5 flex-shrink-0 transition-transform', isOpen && 'rotate-90')} />
+                      <span className="truncate flex-1 text-left">{c.category}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="pb-1">
+                        {c.prompts.map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => setInput(p)}
+                            className="w-full text-left rounded-md pl-8 pr-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="flex-1 overflow-y-auto p-2">
           {filtered.length === 0 && <div className="text-xs text-muted-foreground text-center py-8">No conversations yet</div>}
           {filtered.map((c) => (
@@ -236,17 +339,30 @@ export default function Chat() {
               <p className="text-muted-foreground mt-2 text-sm max-w-md">
                 Start a conversation with Claude Haiku 4.5 or GPT-5. Every message costs 1 credit.
               </p>
-              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-2xl">
-                {[
-                  'Explain quantum entanglement like I\'m five',
-                  'Write a Python script to parse a CSV',
-                  'Draft a landing page hero for a fintech',
-                  'Compare React vs Vue for a startup MVP',
-                ].map((s) => (
-                  <button key={s} onClick={() => setInput(s)} className="text-left rounded-lg border border-border bg-card hover:border-primary/40 transition-colors px-4 py-3 text-sm">
-                    {s}
-                  </button>
-                ))}
+              <div className="mt-8 w-full max-w-2xl">
+                <div className="flex flex-wrap gap-2 justify-center mb-4" data-testid="chat-prompt-categories">
+                  {TEMPLATE_CATEGORIES.map((c, idx) => (
+                    <button
+                      key={c.category}
+                      onClick={() => setPromptCat(idx)}
+                      className={cn(
+                        'px-3.5 py-1.5 rounded-full text-sm border transition-all',
+                        promptCat === idx
+                          ? 'border-primary bg-primary/10 text-foreground shadow-sm'
+                          : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                      )}
+                    >
+                      {c.category}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {TEMPLATE_CATEGORIES[promptCat].prompts.map((s) => (
+                    <button key={s} onClick={() => setInput(s)} className="text-left rounded-lg border border-border bg-card hover:border-primary/40 transition-colors px-4 py-3 text-sm">
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}

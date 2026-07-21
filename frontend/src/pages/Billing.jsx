@@ -13,6 +13,7 @@ export default function Billing() {
   const [packs, setPacks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(null);
+  const [fxRate, setFxRate] = useState(null);
   const navigate = useNavigate();
   const user = useSelector((s) => s.auth.user);
 
@@ -24,7 +25,10 @@ export default function Billing() {
         setPacks(data.items);
       } finally { setLoading(false); }
     })();
+    api.get('/payments/fx-rate').then(r => setFxRate(r.data.rate)).catch(() => {});
   }, []);
+
+  const inr = (usd) => fxRate ? `≈ ₹${Math.round(usd * fxRate).toLocaleString('en-IN')}` : null;
 
   const buyRazorpay = async (pack) => {
     setBuying(pack.slug);
@@ -59,7 +63,7 @@ export default function Billing() {
         </div>
       ) : (
         <>
-          <SubscribeSection />
+          <SubscribeSection fxRate={fxRate} />
           <h2 className="font-display text-2xl font-medium mt-12 mb-4">Top-up packs</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {packs.map((p) => (
@@ -72,6 +76,7 @@ export default function Billing() {
                 <div className="mt-2 font-display text-4xl font-medium tracking-tight">
                   ${p.price.toFixed(2)}
                 </div>
+                {inr(p.price) && <div className="text-sm text-muted-foreground mt-0.5">{inr(p.price)}</div>}
                 <div className="mt-1 text-sm text-muted-foreground">{Math.floor(p.credits).toLocaleString()} credits{p.bonus_credits > 0 && <span className="text-emerald-400"> + {Math.floor(p.bonus_credits)} bonus</span>}</div>
                 <ul className="mt-6 space-y-2 flex-1">
                   <FeatureItem>Never-expiring credits</FeatureItem>
@@ -113,9 +118,10 @@ function FeatureItem({ children }) {
   );
 }
 
-function SubscribeSection() {
+function SubscribeSection({ fxRate }) {
   const [plans, setPlans] = useState([]);
   const [busy, setBusy] = useState(null);
+  const inr = (usd) => fxRate ? `≈ ₹${Math.round(usd * fxRate).toLocaleString('en-IN')}` : null;
   useEffect(() => {
     api.get('/payments/plans').then(r => setPlans(r.data.items || [])).catch(() => {});
   }, []);
@@ -138,6 +144,7 @@ function SubscribeSection() {
             <div className="text-xs uppercase tracking-wider text-primary">{p.billing_period}</div>
             <div className="font-display text-xl font-medium mt-1">{p.name}</div>
             <div className="mt-2 text-3xl font-medium">${p.price_usd}<span className="text-sm text-muted-foreground font-normal"> / {p.billing_period === 'annual' ? 'year' : 'month'}</span></div>
+            {inr(p.price_usd) && <div className="text-sm text-muted-foreground mt-0.5">{inr(p.price_usd)} / {p.billing_period === 'annual' ? 'year' : 'month'}</div>}
             <ul className="mt-4 space-y-1.5 flex-1">
               <FeatureItem>{p.monthly_credits} credits / {p.billing_period === 'annual' ? 'year' : 'month'}</FeatureItem>
               <FeatureItem>{p.window_credits} credits per {p.window_hours}h window</FeatureItem>
