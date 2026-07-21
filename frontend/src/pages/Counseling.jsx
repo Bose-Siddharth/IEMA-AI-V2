@@ -4,11 +4,14 @@ import api from '@/lib/api';
 import { setWalletBalance } from '@/store/slices/uiSlice';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Heart, Briefcase, GraduationCap, Send } from 'lucide-react';
+import { Loader2, Heart, Briefcase, GraduationCap, Send, Volume2, Square, Clock, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+const HISTORY_KEY = 'counseling_history';
+const loadHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; } };
 
 const MODES = [
   { key: 'career', label: 'Career', Icon: Briefcase, hint: 'Confidential career advice. India tech context.', accent: 'from-indigo-500/20 to-indigo-500/5' },
@@ -21,12 +24,34 @@ export default function Counseling() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [speakingIdx, setSpeakingIdx] = useState(null);
+  const [history, setHistory] = useState(loadHistory);
+  const [showHistory, setShowHistory] = useState(false);
   const dispatch = useDispatch();
   const scrollRef = useRef(null);
+  const pendingRestore = useRef(null);
   const activeMode = MODES.find(m => m.key === mode);
 
-  useEffect(() => { setMessages([]); }, [mode]);
+  // Reset thread when the user switches mode — unless we're restoring a history item.
+  useEffect(() => {
+    if (pendingRestore.current) { setMessages(pendingRestore.current); pendingRestore.current = null; }
+    else setMessages([]);
+  }, [mode]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, loading]);
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);  // stop TTS on unmount
+
+  const speak = (text, idx) => {
+    const synth = window.speechSynthesis;
+    if (!synth) return toast.error('Text-to-speech not supported in this browser');
+    synth.cancel();
+    if (speakingIdx === idx) return setSpeakingIdx(null);  // toggle off
+    // strip markdown so it reads cleanly
+    const clean = text.replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/[*_`#>]/g, '');
+    const u = new SpeechSynthesisUtterance(clean);
+    u.onend = u.onerror = () => setSpeakingIdx(null);
+    setSpeakingIdx(idx);
+    synth.speak(u);
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -40,10 +65,25 @@ export default function Counseling() {
         role: 'assistant', text: data.response, source: data.source,
         score: data.score, disclaimer: data.disclaimer, credits: data.credits_used,
       }]);
+      const entry = { mode, q: text, a: data.response, ts: Date.now() };
+      setHistory(prev => {
+        const next = [entry, ...prev].slice(0, 30);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Counsel failed');
     } finally { setLoading(false); }
   };
+
+  const openHistory = (h) => {
+    setShowHistory(false);
+    const restored = [{ role: 'user', text: h.q }, { role: 'assistant', text: h.a }];
+    if (h.mode !== mode) { pendingRestore.current = restored; setMode(h.mode); }
+    else setMessages(restored);
+  };
+
+  const clearHistory = () => { localStorage.removeItem(HISTORY_KEY); setHistory([]); };
 
   return (
     <div className="h-full flex flex-col" data-testid="counseling-page">
@@ -53,11 +93,56 @@ export default function Counseling() {
             <div className="h-11 w-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
               <Heart className="h-5 w-5 text-primary" />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="font-display text-2xl md:text-3xl font-semibold tracking-tight">Counseling</h1>
               <p className="text-sm text-muted-foreground">{activeMode.hint}</p>
             </div>
+            <button
+              onClick={() => setShowHistory(v => !v)}
+              data-testid="counseling-history-toggle"
+              className={cn(
+                'inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-medium transition-all',
+                showHistory
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+              )}
+            >
+              <Clock className="h-4 w-4" />
+              <span className="hidden sm:inline">History</span>
+              {history.length > 0 && <span className="text-xs rounded-full bg-primary/15 text-primary px-1.5">{history.length}</span>}
+            </button>
           </div>
+
+          {showHistory && (
+            <div className="mb-4 rounded-xl border border-border bg-card overflow-hidden" data-testid="counseling-history">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Previous conversations</span>
+                {history.length > 0 && (
+                  <button onClick={clearHistory} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors">
+                    <Trash2 className="h-3.5 w-3.5" /> Clear
+                  </button>
+                )}
+              </div>
+              <div className="max-h-64 overflow-y-auto p-1">
+                {history.length === 0 ? (
+                  <div className="text-sm text-muted-foreground p-4 text-center">No previous conversations yet.</div>
+                ) : history.map((h, i) => {
+                  const hm = MODES.find(m => m.key === h.mode);
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => openHistory(h)}
+                      className="w-full text-left rounded-lg px-3 py-2 hover:bg-accent flex items-center gap-3 transition-colors"
+                    >
+                      <span className="text-[10px] uppercase tracking-wide rounded-full bg-primary/10 text-primary px-2 py-0.5 flex-shrink-0">{hm?.label || h.mode}</span>
+                      <span className="text-sm truncate flex-1">{h.q}</span>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">{new Date(h.ts).toLocaleDateString()}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 flex-wrap" data-testid="counseling-mode-picker">
             {MODES.map(m => (
               <button
@@ -82,13 +167,12 @@ export default function Counseling() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="max-w-3xl mx-auto space-y-4" data-testid="counseling-thread">
           {messages.length === 0 && (
-            <div className={cn('rounded-2xl border border-border bg-gradient-to-b p-8 text-center', activeMode.accent)}>
-              <activeMode.Icon className="h-8 w-8 mx-auto text-primary mb-3" />
-              <div className="text-lg font-medium">Start a private conversation</div>
-              <div className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                Private, judgment-free. Ask anything.
-              </div>
-            </div>
+            <img
+              src={`${process.env.PUBLIC_URL}/counseling-hero.png`}
+              alt="Start a private conversation — private, judgement-free, ask anything"
+              className="w-full rounded-2xl border border-border"
+              data-testid="counseling-empty-hero"
+            />
           )}
           {messages.map((m, i) => (
             <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
@@ -103,6 +187,31 @@ export default function Counseling() {
                     <div className="prose-chat text-sm">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
                     </div>
+                    <button
+                      onClick={() => speak(m.text, i)}
+                      className={cn(
+                        'mt-3 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:shadow-md hover:brightness-110 active:scale-95',
+                        speakingIdx === i
+                          ? 'bg-gradient-to-r from-rose-500 to-orange-500'
+                          : 'bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500'
+                      )}
+                      data-testid="counseling-tts-btn"
+                      title={speakingIdx === i ? 'Stop' : 'Read aloud'}
+                    >
+                      {speakingIdx === i ? (
+                        <>
+                          <Square className="h-3.5 w-3.5 fill-current" />
+                          <span>Stop</span>
+                          <span className="flex items-end gap-0.5 h-3">
+                            <span className="w-0.5 bg-white rounded-full animate-pulse" style={{ height: '60%', animationDelay: '0ms' }} />
+                            <span className="w-0.5 bg-white rounded-full animate-pulse" style={{ height: '100%', animationDelay: '150ms' }} />
+                            <span className="w-0.5 bg-white rounded-full animate-pulse" style={{ height: '40%', animationDelay: '300ms' }} />
+                          </span>
+                        </>
+                      ) : (
+                        <><Volume2 className="h-4 w-4" /> <span>Listen</span></>
+                      )}
+                    </button>
                     {m.disclaimer && (
                       <div className="mt-3 text-[11px] text-muted-foreground italic border-t border-border/50 pt-2">
                         {m.disclaimer}
