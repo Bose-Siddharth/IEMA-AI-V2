@@ -166,6 +166,8 @@ async def studio_image(req: ImageGenRequest, user: User = Depends(get_current_us
         raise
     except Exception as e:
         logger.exception("Image gen failed")
+        if "moderation_blocked" in str(e):
+            raise HTTPException(400, "This prompt was blocked by the image safety filter. Please rephrase and try again.")
         raise HTTPException(500, f"Image gen failed: {str(e)[:200]}")
 
 

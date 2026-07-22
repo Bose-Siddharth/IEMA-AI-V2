@@ -5,8 +5,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+from services.llm_client import LlmChat, UserMessage, OpenAIImageGeneration
 from google import genai
 from google.genai import types as genai_types
 from services.knowledge_retriever import retrieve, store

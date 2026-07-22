@@ -4,7 +4,7 @@ import base64
 import logging
 from typing import AsyncGenerator, List, Dict, Optional
 import httpx
-from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone, ImageContent
+from services.llm_client import LlmChat, UserMessage, TextDelta, StreamDone, ImageContent
 from services.capability_manifest import with_capability
 
 logger = logging.getLogger(__name__)
