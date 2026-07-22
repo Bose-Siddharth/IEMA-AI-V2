@@ -1,6 +1,5 @@
 import axios from "axios";
 import Constants from "expo-constants";
-import * as SecureStore from "expo-secure-store";
 import { store } from "./store/store";
 import { logout, setTokens } from "./store/slices/authSlice";
 
@@ -54,32 +53,3 @@ api.interceptors.response.use(
 
 export { API_BASE };
 export default api;
-
-// Secure storage helpers
-export const persistAuth = async (state) => {
-  try {
-    if (state.access_token) {
-      await SecureStore.setItemAsync(
-        "iema_auth",
-        JSON.stringify({
-          user: state.user,
-          tokens: {
-            access_token: state.access_token,
-            refresh_token: state.refresh_token,
-          },
-        })
-      );
-    } else {
-      await SecureStore.deleteItemAsync("iema_auth");
-    }
-  } catch {}
-};
-
-export const loadAuth = async () => {
-  try {
-    const raw = await SecureStore.getItemAsync("iema_auth");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};

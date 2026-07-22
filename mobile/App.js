@@ -12,7 +12,7 @@ import { View, ActivityIndicator, Text } from 'react-native';
 
 import { store } from './src/store/store';
 import { hydrate } from './src/store/slices/authSlice';
-import { loadAuth } from './src/api';
+import { loadAuth } from './src/authStorage';
 import { colors } from './src/theme';
 import RootNavigator from './src/navigation/RootNavigator';
 

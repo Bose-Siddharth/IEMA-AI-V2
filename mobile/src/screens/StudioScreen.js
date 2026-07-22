@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, Image, TouchableOpacity, Alert, Linking, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Image, TouchableOpacity, Alert, Linking, ActivityIndicator, RefreshControl, Modal, FlatList } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { Sparkles, ImageIcon, FileText, Video as VideoIcon, Download, Link as LinkIcon, History as HistoryIcon, Loader2 } from 'lucide-react-native';
+import { ChevronDown, Check, Sparkles, ImageIcon, FileText, Video as VideoIcon, Download, Link as LinkIcon, History as HistoryIcon, Loader2 } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../api';
 import ScreenHeader from '../components/ScreenHeader';
 import { Card, Button, Input, Label } from '../components/UI';
@@ -59,10 +60,27 @@ function TabBtn({ label, Icon, active, onPress }) {
 
 // -------------------- Summarize --------------------
 function Summarize() {
+  const insets = useSafeAreaInsets();
   const state = useStudioStore('sum');
   const [text, setText] = useState(state.text || '');
   const [url, setUrl] = useState(state.url || '');
   const [style, setStyle] = useState(state.style || 'default');
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/chat/models');
+        if (data?.items?.length) {
+          setModels(data.items);
+          const def = data.items.find((m) => m.default) || data.items[0];
+          setSelectedModel((cur) => cur ?? def.id);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const busy = state.status === 'running';
   const isImageJob = studioStore.anyRunning() && !busy;
@@ -76,6 +94,7 @@ function Summarize() {
         text: text.trim() || undefined,
         url: url.trim() || undefined,
         style,
+        model: selectedModel === 'iema' ? undefined : selectedModel,
       });
       studioStore.complete('sum', { result: data.summary });
     } catch (e) {
@@ -105,6 +124,71 @@ function Summarize() {
                         active={style === s} onPress={() => setStyle(s)} />
           ))}
         </View>
+
+        <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, marginTop: spacing.md }}>Model</Text>
+        <TouchableOpacity
+          onPress={() => setModelPickerOpen(true)}
+          disabled={busy}
+          style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            marginTop: 6, paddingHorizontal: 12, paddingVertical: 10,
+            borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card,
+          }}
+          testID="summarize-model-picker-button"
+        >
+          <Text style={{ color: colors.text, fontSize: fontSize.sm, fontWeight: '600' }}>
+            {models.find((m) => m.id === selectedModel)?.name || 'Select model'}
+            {models.find((m) => m.id === selectedModel)?.label ? ` — ${models.find((m) => m.id === selectedModel).label}` : ''}
+          </Text>
+          <ChevronDown color={colors.textMuted} size={16} />
+        </TouchableOpacity>
+
+        <Modal
+          visible={modelPickerOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setModelPickerOpen(false)}
+        >
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: '#00000080', justifyContent: 'flex-end' }}
+            activeOpacity={1}
+            onPress={() => setModelPickerOpen(false)}
+          >
+            <View style={{
+              backgroundColor: colors.card, borderTopLeftRadius: radii.lg, borderTopRightRadius: radii.lg,
+              paddingBottom: Math.max(insets.bottom, spacing.md), paddingTop: spacing.md,
+            }}>
+              <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, fontWeight: '600', paddingHorizontal: spacing.md, paddingBottom: 8 }}>
+                CHOOSE MODEL
+              </Text>
+              <FlatList
+                data={models}
+                keyExtractor={(m) => m.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={() => { setSelectedModel(item.id); setModelPickerOpen(false); }}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 12 }}
+                  >
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ color: colors.text, fontSize: fontSize.md, fontWeight: '600' }}>{item.name}</Text>
+                        {!!item.label && (
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm, backgroundColor: colors.primaryDim }}>
+                            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '600' }}>{item.label}</Text>
+                          </View>
+                        )}
+                      </View>
+                      {!!item.description && (
+                        <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 }}>{item.description}</Text>
+                      )}
+                    </View>
+                    {selectedModel === item.id && <Check color={colors.primary} size={18} />}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         <Button title={busy ? 'Summarising…' : 'Summarize'}
                 onPress={run}
@@ -186,6 +270,13 @@ function ImageGen() {
           ))}
         </View>
 
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md }}>
+          <Text style={{ color: colors.textMuted, fontSize: fontSize.xs }}>Model:</Text>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.sm, backgroundColor: colors.primaryDim }}>
+            <Text style={{ color: colors.primary, fontSize: fontSize.xs, fontWeight: '600' }}>GPT Image 1</Text>
+          </View>
+        </View>
+
         <Button title={busy ? 'Rendering…' : 'Generate image'}
                 onPress={run} loading={busy}
                 disabled={busy || otherBusy || prompt.trim().length < 3}
@@ -202,9 +293,10 @@ function ImageGen() {
       {state.status === 'done' && (state.images || []).map((im, i) => (
         <Card key={i} style={{ padding: 0, overflow: 'hidden' }}>
           <Image source={{ uri: im.url }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
-          <View style={{ padding: spacing.md, flexDirection: 'row', justifyContent: 'flex-end' }}>
-          <Button title="Save / share"
-                    onPress={() => Linking.openURL(im.url)} testID={`image-save-${i}`} />
+          <View style={{ padding: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: colors.textDim, fontSize: fontSize.xs }}>GPT Image 1</Text>
+            <Button title="Save / share"
+                      onPress={() => Linking.openURL(im.url)} testID={`image-save-${i}`} />
           </View>
         </Card>
       ))}
