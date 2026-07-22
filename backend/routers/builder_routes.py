@@ -137,11 +137,17 @@ async def use_template(slug: str, user: User = Depends(get_current_user)):
 
 @router.get("/projects")
 async def list_projects(user: User = Depends(get_current_user)):
-    cursor = builder_projects_col.find(
-        {"user_id": user.id},
-        {"files": 0},  # exclude heavy field on list
-    ).sort("updated_at", -1).limit(100)
+    cursor = (
+        builder_projects_col.find(
+            {"user_id": user.id},
+            {"files": 0},  # Don't fetch the large files array
+        )
+        .sort("updated_at", -1)
+        .limit(100)
+    )
+
     items = [_to_public_project(d) async for d in cursor]
+
     return {"items": items}
 
 
@@ -154,6 +160,7 @@ async def create_project(req: CreateProjectRequest, user: User = Depends(get_cur
         "description": result["description"],
         "prompt": req.prompt[:2000],
         "files": result["files"],
+        "file_count": len(result["files"]),
         "share_key": None,
         "github": None,
         "created_at": now_iso(),
@@ -190,7 +197,7 @@ async def save_files(project_id: str, req: SaveFilesRequest, user: User = Depend
     ]
     await builder_projects_col.update_one(
         {"_id": ObjectId(project_id)},
-        {"$set": {"files": files, "updated_at": now_iso()}},
+        {"$set": {"files": files, "file_count": len(files), "updated_at": now_iso()}},
     )
     return {"ok": True, "files": files}
 
@@ -201,7 +208,7 @@ async def refine(project_id: str, req: RefineRequest, user: User = Depends(get_c
     new_files = await refine_project(doc.get("files", []), req.instruction, session_id=f"builder-refine-{project_id}")
     await builder_projects_col.update_one(
         {"_id": ObjectId(project_id)},
-        {"$set": {"files": new_files, "updated_at": now_iso()}},
+        {"$set": {"files": new_files, "file_count": len(new_files), "updated_at": now_iso()}},
     )
     billing = await spend(user.id, "builder_refine", description="Builder refine")
     await log_event("builder_refine", user_id=user.id,

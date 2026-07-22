@@ -41,14 +41,6 @@ app = FastAPI(title="IEMA.ai v2 API", version="2.0.0")
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
-@app.get("/auth/callback", include_in_schema=False)
-async def oauth_callback_compat(request: Request):
-    query = request.url.query
-    url = "/api/auth/callback"
-    if query:
-        url += f"?{query}"
-    return RedirectResponse(url=url, status_code=307)
-
 api_router = APIRouter(prefix="/api")
 
 @app.get("/")
@@ -68,7 +60,8 @@ async def health():
     return {"status": "healthy"}
 
 
-api_router.include_router(auth_router)
+app.include_router(auth_router, prefix="/auth", include_in_schema=False)
+api_router.include_router(auth_router, prefix="/auth")
 api_router.include_router(wallet_router)
 api_router.include_router(chat_router)
 api_router.include_router(usage_router)
