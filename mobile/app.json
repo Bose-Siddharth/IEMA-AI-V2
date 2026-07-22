@@ -74,7 +74,7 @@
       "expo-web-browser"
     ],
     "extra": {
-      "apiBaseUrl": "http://192.168.1.38:8000",
+      "apiBaseUrl": "https://api.iema.ai",
       "eas": {
         "projectId": "d6e0dba8-f63e-40a4-8cba-baa765a2f423"
       }
