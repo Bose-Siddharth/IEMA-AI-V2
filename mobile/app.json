@@ -20,6 +20,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.iemaai.app",
       "buildNumber": "28",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "IEMA.ai needs access to your photos to attach images to your chats.",
         "NSCameraUsageDescription": "IEMA.ai needs access to your camera to attach photos to your chats.",
@@ -29,7 +30,6 @@
     "android": {
       "package": "com.iemaai.app",
       "versionCode": 1,
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#3b82f6"
