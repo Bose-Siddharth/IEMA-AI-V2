@@ -23,6 +23,7 @@ class SummarizeRequest(BaseModel):
     text: Optional[str] = Field(default=None, max_length=40000)
     url: Optional[str] = Field(default=None, max_length=2048)
     style: str = Field(default="default")  # default | eli5 | executive
+    model: Optional[str] = None  # catalog model id; None/iema = auto-route
 
 
 class ImageGenRequest(BaseModel):
@@ -65,7 +66,7 @@ async def studio_summarize(req: SummarizeRequest, user: User = Depends(get_curre
         if len(text) < 20:
             raise HTTPException(400, "Provide at least 20 characters of text or a fetchable URL")
         session_id = f"studio-sum-{user.id}-{uuid.uuid4().hex[:8]}"
-        result = await summarize_text(session_id, text, req.style, user_id=user.id)
+        result = await summarize_text(session_id, text, req.style, user_id=user.id, model_override=req.model)
         summary = result["response"]
         source = result["source"]
         billing = await spend(

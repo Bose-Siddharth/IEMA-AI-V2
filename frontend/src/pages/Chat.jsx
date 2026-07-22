@@ -114,6 +114,8 @@ export default function Chat() {
   const [search, setSearch] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [promptCat, setPromptCat] = useState(0);
+  const [models, setModels] = useState([]);
+  const [model, setModel] = useState(null);
   const [openTpl, setOpenTpl] = useState(null);
   const [tplOpen, setTplOpen] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -131,6 +133,13 @@ export default function Chat() {
   };
 
   useEffect(() => { loadConversations(); }, []);
+
+  useEffect(() => {
+    api.get('/chat/models').then(({ data }) => {
+      setModels(data.items);
+      setModel(data.items.find((m) => m.default)?.id ?? data.items[0]?.id);
+    }).catch(() => { });
+  }, []);
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -172,7 +181,7 @@ export default function Chat() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${access_token}`,
         },
-        body: JSON.stringify({ content: text, conversation_id: activeId, attachments: sentAttachments }),
+        body: JSON.stringify({ content: text, conversation_id: activeId, attachments: sentAttachments, model }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -367,7 +376,7 @@ export default function Chat() {
               </div>
               <h2 className="font-display text-3xl font-medium tracking-tight">How can I help you today?</h2>
               <p className="text-muted-foreground mt-2 text-sm max-w-md">
-                Start a conversation with Claude Haiku 4.5 or GPT-5. Every message costs 1 credit.
+                Pick a model below the input, then start chatting. Every message costs 1 credit.
               </p>
               <div className="mt-8 w-full max-w-2xl">
                 <div className="flex flex-wrap gap-2 justify-center mb-4" data-testid="chat-prompt-categories">
@@ -430,6 +439,23 @@ export default function Chat() {
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+            {models.length > 0 && (
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Model:</span>
+                <select
+                  value={model ?? ''}
+                  onChange={(e) => setModel(e.target.value)}
+                  title={models.find((m) => m.id === model)?.description}
+                  className="text-xs rounded-lg border border-border bg-card px-2.5 py-1.5 text-foreground focus:outline-none focus:border-primary/50 cursor-pointer"
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} — {m.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
             <div className="relative rounded-xl border border-border bg-card focus-within:border-primary/50 transition-colors">
