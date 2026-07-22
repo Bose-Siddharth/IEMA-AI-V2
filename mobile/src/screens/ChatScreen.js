@@ -10,6 +10,8 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  Modal,
+  FlatList,
 } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +22,8 @@ import {
   X,
   Sparkles,
   Loader as LoaderIcon,
+  ChevronDown,
+  Check,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import Markdown from "react-native-markdown-display";
@@ -39,9 +43,25 @@ export default function ChatScreen({ navigation, route }) {
   const [meta, setMeta] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const scrollRef = useRef(null);
   const { access_token } = useSelector((s) => s.auth);
   const dispatch = useDispatch();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/chat/models");
+        if (data?.items?.length) {
+          setModels(data.items);
+          const def = data.items.find((m) => m.default) || data.items[0];
+          setSelectedModel((cur) => cur ?? def.id);
+        }
+      } catch {}
+    })();
+  }, []);
 
   useEffect(() => {
     if (initialId) {
@@ -53,6 +73,7 @@ export default function ChatScreen({ navigation, route }) {
       })();
     }
   }, [initialId]);
+
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
@@ -198,6 +219,7 @@ export default function ChatScreen({ navigation, route }) {
         content: text,
         conversation_id: conversationId,
         attachments: sentAttachments,
+        model: selectedModel === "iema" ? undefined : selectedModel,
       });
 
       if (!conversationId) {
@@ -398,6 +420,121 @@ export default function ChatScreen({ navigation, route }) {
           ))}
         </View>
       )}
+
+      {/* Model picker */}
+      <View
+        style={{
+          paddingHorizontal: spacing.md,
+          paddingTop: 8,
+          flexDirection: "row",
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => setModelPickerOpen(true)}
+          disabled={streaming}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: radii.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.card,
+          }}
+          testID="model-picker-button"
+        >
+          <Text style={{ color: colors.text, fontSize: fontSize.xs, fontWeight: "600" }}>
+            {models.find((m) => m.id === selectedModel)?.name || "Select model"}
+          </Text>
+          <ChevronDown color={colors.textMuted} size={14} />
+        </TouchableOpacity>
+      </View>
+
+      <Modal
+        visible={modelPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModelPickerOpen(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "#00000080", justifyContent: "flex-end" }}
+          activeOpacity={1}
+          onPress={() => setModelPickerOpen(false)}
+        >
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderTopLeftRadius: radii.lg,
+              borderTopRightRadius: radii.lg,
+              paddingBottom: Math.max(insets.bottom, spacing.md),
+              paddingTop: spacing.md,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: fontSize.xs,
+                fontWeight: "600",
+                paddingHorizontal: spacing.md,
+                paddingBottom: 8,
+              }}
+            >
+              CHOOSE MODEL
+            </Text>
+            <FlatList
+              data={models}
+              keyExtractor={(m) => m.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedModel(item.id);
+                    setModelPickerOpen(false);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: 12,
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text style={{ color: colors.text, fontSize: fontSize.md, fontWeight: "600" }}>
+                        {item.name}
+                      </Text>
+                      {!!item.label && (
+                        <View
+                          style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                            borderRadius: radii.sm,
+                            backgroundColor: colors.primaryDim,
+                          }}
+                        >
+                          <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "600" }}>
+                            {item.label}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    {!!item.description && (
+                      <Text style={{ color: colors.textMuted, fontSize: fontSize.xs, marginTop: 2 }}>
+                        {item.description}
+                      </Text>
+                    )}
+                  </View>
+                  {selectedModel === item.id && (
+                    <Check color={colors.primary} size={18} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Input */}
       <View
