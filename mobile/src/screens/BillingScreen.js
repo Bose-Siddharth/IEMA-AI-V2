@@ -10,6 +10,7 @@ import {
   isIapAvailable, initIap, loadSubscriptions, purchaseSubscription, endIap,
   PRODUCT_TO_PLAN,
 } from '../services/iap';
+import { initRevenueCat } from '../services/revenuecat';
 
 /**
  * Billing screen — uses native IAP for iOS + Android subscriptions
@@ -51,6 +52,7 @@ export default function BillingScreen({ navigation }) {
     let mounted = true;
     (async () => {
       if (!isIapAvailable()) return; // Expo Go — skip silently
+      initRevenueCat(); // Observer Mode: track transactions expo-iap makes, no checkout changes.
       const res = await initIap({
         onPurchase: (verified) => {
           Alert.alert('Subscription active',
