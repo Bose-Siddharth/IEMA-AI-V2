@@ -203,12 +203,18 @@ async def studio_video(req: VideoGenRequest, user: User = Depends(get_current_us
         video_url = video["url_rel"]
         if is_configured():
             try:
+                with open(video["path"], "rb") as f:
+                    data = f.read()
                 key = await upload_bytes(
-                    open(video["path"], "rb").read(),
-                    video["filename"], "video/mp4",
+                    data, video["filename"], "video/mp4",
                     folder=f"studio-videos/{user.id}",
                 )
                 video_url = get_signed_url(key, expires_in=60 * 60 * 24 * 7)
+                # In S3 now — the local copy is redundant, drop it.
+                try:
+                    os.remove(video["path"])
+                except OSError as e:
+                    logger.warning(f"Could not delete local video {video['path']}: {e}")
             except Exception as e:
                 logger.warning(f"S3 upload failed, using local URL: {e}")
         await log_event(

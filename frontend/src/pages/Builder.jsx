@@ -146,7 +146,7 @@ export default function Builder() {
             </div>
             <h2 className="font-display text-3xl font-medium">Code Builder</h2>
             <p className="text-sm text-muted-foreground mt-2">
-              Describe an app. IEMA drops a working project you can preview, edit, share, or push to GitHub.
+              Describe an app. supercreator drops a working project you can preview, edit, share, or push to GitHub.
             </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center">
               <Button onClick={() => setShowCreate(true)} className="gap-2"><Plus className="h-4 w-4" /> New Project</Button>
@@ -287,7 +287,7 @@ function CreateDialog({ open, onOpenChange, onCreated, dispatch }) {
 function GithubDialog({ open, onOpenChange, project, connected, onDone }) {
   const [pat, setPat] = useState('');
   const [repo, setRepo] = useState('');
-  const [commit, setCommit] = useState('IEMA.ai Builder push');
+  const [commit, setCommit] = useState('supercreator.ai Builder push');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
