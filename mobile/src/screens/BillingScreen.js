@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, Alert, ActivityIndicator, Platform } from 'react-native';
+import { useSelector } from 'react-redux';
 import * as WebBrowser from 'expo-web-browser';
 import { Check } from 'lucide-react-native';
 import api from '../api';
@@ -24,6 +25,7 @@ import { initRevenueCat } from '../services/revenuecat';
  * card instead of crashing.
  */
 export default function BillingScreen({ navigation }) {
+  const userId = useSelector((s) => s.auth.user?.id);
   const [packs, setPacks] = useState([]);
   const [plans, setPlans] = useState([]);
   const [iapProducts, setIapProducts] = useState([]);
@@ -52,7 +54,7 @@ export default function BillingScreen({ navigation }) {
     let mounted = true;
     (async () => {
       if (!isIapAvailable()) return; // Expo Go — skip silently
-      initRevenueCat(); // Observer Mode: track transactions expo-iap makes, no checkout changes.
+      initRevenueCat(userId); // Observer Mode: track transactions expo-iap makes, no checkout changes.
       const res = await initIap({
         onPurchase: (verified) => {
           Alert.alert('Subscription active',

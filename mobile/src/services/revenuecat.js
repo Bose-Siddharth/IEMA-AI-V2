@@ -31,14 +31,20 @@ function loadPurchases() {
   }
 }
 
-export function initRevenueCat() {
-  if (_configured || Platform.OS !== 'ios') return;
+/**
+ * @param {string} userId - our Mongo user `_id` string. Passed as RevenueCat's
+ * `appUserID` so the backend webhook's `app_user_id` equals `user.id` directly
+ * (no lookup table needed) — see services/payments_service.py handle_revenuecat_webhook.
+ */
+export function initRevenueCat(userId) {
+  if (_configured || Platform.OS !== 'ios' || !userId) return;
   const Purchases = loadPurchases();
   if (!Purchases) return; // Expo Go / module unavailable
 
   const { PURCHASES_ARE_COMPLETED_BY_TYPE, STOREKIT_VERSION } = require('react-native-purchases');
   Purchases.configure({
     apiKey: REVENUECAT_IOS_API_KEY,
+    appUserID: userId,
     purchasesAreCompletedBy: {
       type: PURCHASES_ARE_COMPLETED_BY_TYPE.MY_APP,
       storeKitVersion: STOREKIT_VERSION.STOREKIT_2,
