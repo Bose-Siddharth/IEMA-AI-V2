@@ -418,11 +418,14 @@ async def oauth_callback(request: Request):
             request.client.host if request.client else "",
         )
 
+        import json
+
         params = urllib.parse.urlencode(
             {
                 "success": "true",
                 "access_token": access,
                 "refresh_token": refresh,
+                "user": json.dumps(_user_to_public(user).model_dump()),
             }
         )
 

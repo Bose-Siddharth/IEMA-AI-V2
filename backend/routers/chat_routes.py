@@ -207,3 +207,159 @@ async def stream_message(req: SendMessageRequest, user: User = Depends(get_curre
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
+
+@router.post("")
+async def send_message(
+    req: SendMessageRequest,
+    user: User = Depends(get_current_user),
+):
+    msg_price = await resolve_cost("chat_message")
+    img_price = await resolve_cost("chat_message_image")
+
+    image_count = 0
+    if req.attachments:
+        image_count = sum(
+            1
+            for a in req.attachments
+            if (a.get("content_type") or "").startswith("image/")
+        )
+
+    total_cost = msg_price["credit_cost"] + image_count * img_price["credit_cost"]
+
+    if not await has_credits(user.id, total_cost):
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            "Insufficient credits. Please recharge your wallet."
+        )
+
+    conv_id = req.conversation_id
+
+    if not conv_id:
+        conv = Conversation(
+            user_id=user.id,
+            title=req.content[:60] or "New Chat"
+        )
+        result = await conversations_col.insert_one(conv.to_mongo())
+        conv_id = str(result.inserted_id)
+    else:
+        existing = await conversations_col.find_one(
+            {
+                "_id": ObjectId(conv_id),
+                "user_id": user.id,
+            }
+        )
+
+        if not existing:
+            raise HTTPException(404, "Conversation not found")
+
+    user_msg = Message(
+        conversation_id=conv_id,
+        user_id=user.id,
+        role="user",
+        content=req.content,
+        attachments=req.attachments or [],
+    )
+
+    user_result = await messages_col.insert_one(user_msg.to_mongo())
+    user_msg.id = str(user_result.inserted_id)
+
+    history_docs = (
+        await messages_col
+        .find({"conversation_id": conv_id})
+        .sort("created_at", 1)
+        .to_list(50)
+    )
+
+    history = [
+        {
+            "role": d["role"],
+            "content": d["content"],
+        }
+        for d in history_docs[:-1]
+    ]
+
+    provider = None
+    model = None
+    full_text = ""
+
+    async for evt in stream_ai_response(
+        conv_id,
+        req.content,
+        history,
+        req.model,
+        attachments=req.attachments,
+    ):
+        if evt["type"] == "meta":
+            provider = evt["provider"]
+            model = evt["model"]
+
+        elif evt["type"] == "delta":
+            full_text += evt["content"]
+
+        elif evt["type"] == "done":
+            full_text = evt.get("content", full_text) or full_text
+            break
+
+        elif evt["type"] == "error":
+            raise HTTPException(500, evt["message"])
+
+    assistant = Message(
+        conversation_id=conv_id,
+        user_id=user.id,
+        role="assistant",
+        content=full_text,
+        provider=provider,
+        model=model,
+        credits_used=total_cost,
+    )
+
+    result = await messages_col.insert_one(assistant.to_mongo())
+
+    await spend(
+        user.id,
+        "chat_message",
+        provider_override=provider,
+        description=f"Chat message ({model})",
+        ref_id=conv_id,
+    )
+
+    if image_count:
+        for _ in range(image_count):
+            await spend(
+                user.id,
+                "chat_message_image",
+                provider_override=provider,
+                description=f"Chat image ({model})",
+                ref_id=conv_id,
+            )
+
+    await conversations_col.update_one(
+        {"_id": ObjectId(conv_id)},
+        {
+            "$set": {
+                "updated_at": now_iso(),
+                "provider_used": provider,
+                "model_used": model,
+            }
+        },
+    )
+
+    await ai_requests_col.insert_one(
+        {
+            "user_id": user.id,
+            "conversation_id": conv_id,
+            "provider": provider,
+            "model": model,
+            "credits_used": total_cost,
+            "created_at": now_iso(),
+        }
+    )
+
+    return {
+        "conversation_id": conv_id,
+        "assistant_message_id": str(result.inserted_id),
+        "content": full_text,
+        "provider": provider,
+        "model": model,
+        "credits_used": total_cost,
+    }

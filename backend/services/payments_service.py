@@ -21,6 +21,7 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 APPLE_APP_STORE_SHARED_SECRET = os.environ.get("APPLE_APP_STORE_SHARED_SECRET", "")
 GOOGLE_PLAY_SA_JSON = os.environ.get("GOOGLE_PLAY_SA_JSON", "")
 GOOGLE_PLAY_PACKAGE = os.environ.get("GOOGLE_PLAY_PACKAGE", "com.iemaai.app")
+REVENUECAT_WEBHOOK_AUTH = os.environ.get("REVENUECAT_WEBHOOK_AUTH", "")
 
 subscriptions_col = db["subscriptions"]
 iap_receipts_col = db["iap_receipts"]
@@ -79,6 +80,19 @@ async def _credit_plan(user_id: str, plan_id: str, source: str, ref_id: str) -> 
     )
     await log_event("subscription_granted", user_id=user_id,
                     payload={"plan_id": plan_id, "source": source, "ref_id": ref_id})
+
+
+async def _revoke_plan(user_id: str, source: str, ref_id: str) -> None:
+    """Downgrade to free. No other path in this codebase does this today —
+    cancellations/expirations previously only flipped `subscriptions.status`
+    without ever touching `users.plan`."""
+    await users_col.update_one({"_id": ObjectId(user_id)}, {"$set": {"plan": "free", "plan_since": now_iso()}})
+    await subscriptions_col.update_one(
+        {"user_id": user_id, "source": source},
+        {"$set": {"status": "cancelled", "revoked_at": now_iso(), "revoked_ref_id": ref_id}},
+    )
+    await log_event("subscription_revoked", user_id=user_id,
+                    payload={"source": source, "ref_id": ref_id})
 
 
 # ==================== Razorpay subscriptions ====================
@@ -259,6 +273,44 @@ async def verify_google_receipt(user_id: str, product_id: str, purchase_token: s
     })
     await _credit_plan(user_id, iema_plan, "google", purchase_token)
     return {"ok": True, "plan_id": iema_plan, "product_id": product_id}
+
+
+# ==================== RevenueCat webhook (Observer Mode) ====================
+# The app already grants credits via verify_apple_receipt()/verify_google_receipt()
+# above — this is a second, independent path so RevenueCat's own view of
+# subscription state (renewals, cancellations, billing issues) can also drive
+# entitlement. `app_user_id` is expected to equal our Mongo user `_id` string,
+# since the mobile app calls `Purchases.logIn(user.id)` after login.
+_REVENUECAT_GRANT_EVENTS = {"INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "UNCANCELLATION"}
+_REVENUECAT_REVOKE_EVENTS = {"CANCELLATION", "EXPIRATION"}
+
+
+async def handle_revenuecat_webhook(body: Dict[str, Any], auth_header: str) -> Dict[str, Any]:
+    if not REVENUECAT_WEBHOOK_AUTH or auth_header != REVENUECAT_WEBHOOK_AUTH:
+        return {"ok": False, "reason": "bad auth"}
+
+    event = body.get("event") or {}
+    event_type = event.get("type", "")
+    user_id = event.get("app_user_id")
+    product_id = event.get("product_id")
+    # RevenueCat resends webhooks on failure; `event.id` is unique per delivery
+    # and is what we key idempotency on (a renewal reuses the same product_id,
+    # so we can't dedupe on that).
+    ref_id = event.get("id") or f"{user_id}:{product_id}:{event.get('purchased_at_ms')}"
+
+    if not user_id or not ObjectId.is_valid(user_id):
+        logger.info(f"RevenueCat webhook {event_type} for non-account app_user_id={user_id} — skipped")
+        return {"ok": True, "event": event_type, "skipped": "no matching account"}
+
+    if event_type in _REVENUECAT_GRANT_EVENTS:
+        iema_plan = DEFAULT_PRODUCT_MAP.get(product_id)
+        if not iema_plan:
+            logger.warning(f"RevenueCat webhook {event_type}: unknown product_id={product_id}")
+        else:
+            await _credit_plan(user_id, iema_plan, "revenuecat", ref_id)
+    elif event_type in _REVENUECAT_REVOKE_EVENTS:
+        await _revoke_plan(user_id, "revenuecat", ref_id)
+    return {"ok": True, "event": event_type}
 
 
 # ==================== admin queries ====================

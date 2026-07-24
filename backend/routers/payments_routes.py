@@ -235,6 +235,7 @@ async def payment_history(user: User = Depends(get_current_user), limit: int = 5
 from services.payments_service import (
     create_subscription as _rzp_create_sub,
     handle_razorpay_webhook as _rzp_webhook,
+    handle_revenuecat_webhook as _revenuecat_webhook,
     verify_apple_receipt as _apple_verify,
     verify_google_receipt as _google_verify,
     DEFAULT_PRODUCT_MAP,
@@ -256,6 +257,16 @@ async def razorpay_sub_webhook(request: Request):
     res = await _rzp_webhook(body, signature)
     if not res.get("ok"):
         raise HTTPException(400, res.get("reason", "webhook failed"))
+    return res
+
+
+@router.post("/webhook/revenuecat", include_in_schema=False)
+async def revenuecat_webhook(request: Request):
+    auth_header = request.headers.get("authorization", "")
+    body = await request.json()
+    res = await _revenuecat_webhook(body, auth_header)
+    if not res.get("ok"):
+        raise HTTPException(401, res.get("reason", "webhook failed"))
     return res
 
 

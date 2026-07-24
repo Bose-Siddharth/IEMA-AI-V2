@@ -1,5 +1,5 @@
 import { createSlice } from '@reduxjs/toolkit';
-import { persistAuth } from '../../api';
+import { persistAuth } from '../../authStorage';
 
 const authSlice = createSlice({
   name: 'auth',

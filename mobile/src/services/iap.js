@@ -56,6 +56,8 @@ export function isIapAvailable() {
 
 export async function initIap({ onPurchase, onError } = {}) {
   const iap = loadIap();
+  // console.log(iap);
+  
   if (!iap) return { ok: false, reason: 'expo-iap unavailable (Expo Go or web)' };
   if (_initialized) return { ok: true, cached: true };
   try {

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, Alert, ActivityIndicator, Platform } from 'react-native';
+import { useSelector } from 'react-redux';
 import * as WebBrowser from 'expo-web-browser';
 import { Check } from 'lucide-react-native';
 import api from '../api';
@@ -10,6 +11,7 @@ import {
   isIapAvailable, initIap, loadSubscriptions, purchaseSubscription, endIap,
   PRODUCT_TO_PLAN,
 } from '../services/iap';
+import { initRevenueCat } from '../services/revenuecat';
 
 /**
  * Billing screen — uses native IAP for iOS + Android subscriptions
@@ -23,6 +25,7 @@ import {
  * card instead of crashing.
  */
 export default function BillingScreen({ navigation }) {
+  const userId = useSelector((s) => s.auth.user?.id);
   const [packs, setPacks] = useState([]);
   const [plans, setPlans] = useState([]);
   const [iapProducts, setIapProducts] = useState([]);
@@ -51,6 +54,7 @@ export default function BillingScreen({ navigation }) {
     let mounted = true;
     (async () => {
       if (!isIapAvailable()) return; // Expo Go — skip silently
+      initRevenueCat(userId); // Observer Mode: track transactions expo-iap makes, no checkout changes.
       const res = await initIap({
         onPurchase: (verified) => {
           Alert.alert('Subscription active',
