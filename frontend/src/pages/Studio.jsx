@@ -64,18 +64,28 @@ function Summarize() {
   const [text, setText] = useState(state.text || '');
   const [url, setUrl] = useState(state.url || '');
   const [style, setStyle] = useState(state.style || 'default');
+  const [models, setModels] = useState([]);
+  const [model, setModel] = useState(state.model || null);
   const busy = state.status === 'running';
   const otherBusy = studioStore.anyRunning() && !busy;
+
+  useEffect(() => {
+    api.get('/chat/models').then(({ data }) => {
+      setModels(data.items);
+      setModel((m) => m ?? (data.items.find((x) => x.default)?.id ?? data.items[0]?.id));
+    }).catch(() => { });
+  }, []);
 
   const run = async () => {
     if (studioStore.anyRunning()) return;
     if (text.trim().length < 20 && !url.trim()) return;
-    studioStore.begin('sum', { text, url, style });
+    studioStore.begin('sum', { text, url, style, model });
     try {
       const { data } = await api.post('/studio/summarize', {
         text: text.trim() || undefined,
         url: url.trim() || undefined,
         style,
+        model,
       });
       studioStore.complete('sum', { result: data.summary });
     } catch (e) {
@@ -95,6 +105,21 @@ function Summarize() {
         </div>
         <Input value={url} onChange={(e) => setUrl(e.target.value)}
                placeholder="https://example.com/article" data-testid="studio-summarize-url" />
+        {models.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Model:</span>
+            <select
+              value={model ?? ''}
+              onChange={(e) => setModel(e.target.value)}
+              title={models.find((m) => m.id === model)?.description}
+              className="text-xs rounded-lg border border-border bg-card px-2.5 py-1.5 text-foreground focus:outline-none focus:border-primary/50 cursor-pointer"
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.name} — {m.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {['default', 'eli5', 'executive'].map((s) => (
             <button type="button" key={s} onClick={() => setStyle(s)}
@@ -157,6 +182,10 @@ function ImageGen() {
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         <Input data-testid="studio-image-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)}
                placeholder="A calm sunset over a mountain lake..." className="h-11" />
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Model:</span>
+          <span className="px-3 py-1 text-xs rounded-full border border-primary text-primary bg-primary/10">GPT Image 1</span>
+        </div>
         <ChipRow label="Style" options={['realistic', 'cinematic', 'anime', 'watercolor', 'pixel-art', '3D render']} value={artStyle} onChange={setArtStyle} />
         <ChipRow label="Aspect" options={['square', 'portrait', 'landscape']} value={aspect} onChange={setAspect} />
         <ChipRow label="Quality" options={['low', 'medium', 'high']} value={quality} onChange={setQuality} />

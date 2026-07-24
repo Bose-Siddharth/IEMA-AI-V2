@@ -18,6 +18,13 @@ let refreshing = null;
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
+    // FastAPI returns structured detail objects for 429/402 (window/credit limits).
+    // Callers do toast.error(data.detail) assuming a string — flatten to avoid
+    // "Objects are not valid as a React child".
+    const d = error.response?.data?.detail;
+    if (d && typeof d === 'object') {
+      error.response.data.detail = d.message || 'Request failed';
+    }
     const original = error.config;
     if (error.response?.status === 401 && !original._retry) {
       const refresh = store.getState().auth.refresh_token;
